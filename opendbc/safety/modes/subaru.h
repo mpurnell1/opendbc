@@ -87,6 +87,13 @@
   {.msg = {{MSG_SUBARU_ES_Brake,        alt_bus,         8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
   {.msg = {{MSG_SUBARU_Steering_2,      SUBARU_MAIN_BUS, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
 
+#define SUBARU_LKAS_ANGLE_LONG_RX_CHECKS(alt_bus)                                                                                               \
+  {.msg = {{MSG_SUBARU_Throttle,        SUBARU_MAIN_BUS, 8, 100U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}}, \
+  {.msg = {{MSG_SUBARU_Steering_Torque, SUBARU_MAIN_BUS, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+  {.msg = {{MSG_SUBARU_Wheel_Speeds,    alt_bus,         8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+  {.msg = {{MSG_SUBARU_Brake_Status,    alt_bus,         8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+  {.msg = {{MSG_SUBARU_Steering_2,      SUBARU_MAIN_BUS, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+
 static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
 static bool subaru_lkas_angle = false;
@@ -322,6 +329,14 @@ static safety_config subaru_init(uint16_t param) {
     SUBARU_LKAS_ANGLE_RX_CHECKS(SUBARU_ALT_BUS)
   };
 
+  static RxCheck subaru_lkas_angle_long_rx_checks[] = {
+    SUBARU_LKAS_ANGLE_LONG_RX_CHECKS(SUBARU_MAIN_BUS)
+  };
+
+  static RxCheck subaru_lkas_angle_gen2_long_rx_checks[] = {
+    SUBARU_LKAS_ANGLE_LONG_RX_CHECKS(SUBARU_ALT_BUS)
+  };
+
   const uint16_t SUBARU_PARAM_GEN2 = 1;
   const uint16_t SUBARU_PARAM_LKAS_ANGLE = 8;
 
@@ -338,10 +353,10 @@ static safety_config subaru_init(uint16_t param) {
   safety_config ret;
   if (subaru_lkas_angle) {
     if (subaru_gen2) {
-      ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_lkas_angle_gen2_rx_checks, SUBARU_LKAS_ANGLE_GEN2_LONG_TX_MSGS) : \
+      ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_lkas_angle_gen2_long_rx_checks, SUBARU_LKAS_ANGLE_GEN2_LONG_TX_MSGS) : \
                                   BUILD_SAFETY_CFG(subaru_lkas_angle_gen2_rx_checks, SUBARU_LKAS_ANGLE_GEN2_TX_MSGS);
     } else {
-      ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_lkas_angle_rx_checks, SUBARU_LKAS_ANGLE_LONG_TX_MSGS) : \
+      ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_lkas_angle_long_rx_checks, SUBARU_LKAS_ANGLE_LONG_TX_MSGS) : \
                                   BUILD_SAFETY_CFG(subaru_lkas_angle_rx_checks, SUBARU_LKAS_ANGLE_TX_MSGS);
     }
   } else if (subaru_gen2) {
