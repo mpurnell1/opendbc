@@ -303,6 +303,7 @@ static safety_config subaru_init(uint16_t param) {
   static const CanMsg SUBARU_LKAS_ANGLE_GEN2_LONG_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_ALT_BUS, MSG_SUBARU_ES_LKAS_ANGLE)
     SUBARU_COMMON_LONG_TX_MSGS(SUBARU_ALT_BUS)
+    SUBARU_GEN2_LONG_ADDITIONAL_TX_MSGS()
   };
 
   static RxCheck subaru_rx_checks[] = {
