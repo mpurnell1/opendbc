@@ -98,7 +98,7 @@ class CarInterface(CarInterfaceBase):
       ret.alphaLongitudinalAvailable = True
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable
 
-    if ret.flags & SubaruFlags.GLOBAL_GEN2 and ret.openpilotLongitudinalControl:
+    if ret.flags & SubaruFlags.GLOBAL_GEN2 and ret.openpilotLongitudinalControl and not (ret.flags & SubaruFlags.LKAS_ANGLE):
       ret.flags |= SubaruFlags.DISABLE_EYESIGHT.value
 
     if ret.openpilotLongitudinalControl:
