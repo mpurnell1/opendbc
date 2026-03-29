@@ -123,6 +123,12 @@ class CarInterface(CarInterfaceBase):
     if CP.flags & SubaruFlags.DISABLE_EYESIGHT:
       if communication_control is None:
         communication_control = bytes([uds.SERVICE_TYPE.COMMUNICATION_CONTROL, uds.CONTROL_TYPE.DISABLE_RX_DISABLE_TX, uds.MESSAGE_TYPE.NORMAL])
+
+      # LKAS_ANGLE Eyesight ECUs prohibit diagnostics for ~10s after startup
+      if CP.flags & SubaruFlags.LKAS_ANGLE:
+        import time
+        time.sleep(12)
+
       disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=communication_control)
 
   @staticmethod
