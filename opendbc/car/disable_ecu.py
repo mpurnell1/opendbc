@@ -24,8 +24,6 @@ def disable_ecu(can_recv, can_send, bus=0, addr=0x7d0, sub_addr=None, com_cont_r
       for _, _ in query.get_data(timeout).items():
         carlog.warning("communication control disable tx/rx ...")
 
-        # Brief delay to let ECU stabilize the diagnostic session before
-        # accepting CommunicationControl, especially during engine start
         time.sleep(0.2)
 
         query = IsoTpParallelQuery(can_send, can_recv, bus, [(addr, sub_addr)], [com_cont_req], [COM_CONT_RESPONSE])

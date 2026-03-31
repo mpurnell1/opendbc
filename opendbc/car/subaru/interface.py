@@ -125,7 +125,14 @@ class CarInterface(CarInterfaceBase):
         communication_control = bytes([uds.SERVICE_TYPE.COMMUNICATION_CONTROL, uds.CONTROL_TYPE.DISABLE_RX_DISABLE_TX, uds.MESSAGE_TYPE.NORMAL])
 
 
-      disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=communication_control)
+      # Retry disable_ecu multiple times: the ECU may reject CommunicationControl with
+      # conditionsNotCorrect (0x22) during engine start due to heavy CAN bus traffic.
+      # disable_ecu itself returns True even on rejection (fire-and-forget), so we
+      # call it multiple times to ensure at least one attempt succeeds.
+      for _ in range(3):
+        disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=communication_control)
+        import time
+        time.sleep(0.5)
 
   @staticmethod
   def deinit(CP, can_recv, can_send):
