@@ -4,6 +4,7 @@ from opendbc.car import Bus, make_tester_present_msg
 from opendbc.car.lateral import apply_center_deadzone, apply_driver_steer_torque_limits, apply_steer_angle_limits_vm, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
+from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.subaru.values import DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 from opendbc.car.vehicle_model import VehicleModel
 
@@ -33,6 +34,7 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
+    self.eyesight_disabled = not (CP.flags & SubaruFlags.DISABLE_EYESIGHT)
 
     if CP.flags & SubaruFlags.LKAS_ANGLE:
       self.VM = VehicleModel(get_safety_CP())
@@ -43,6 +45,16 @@ class CarController(CarControllerBase, SnGCarController):
     pcm_cancel_cmd = CC.cruiseControl.cancel
 
     can_sends = []
+
+    # Deferred EyeSight disable for LKAS_ANGLE: runs once after panda is in subaru safety mode
+    if not self.eyesight_disabled:
+      from opendbc.car.subaru.interface import CarInterface
+      deferred = getattr(CarInterface, '_deferred_disable', None)
+      if deferred is not None:
+        can_recv, can_send, comm_ctrl = deferred
+        CarInterface._deferred_disable = None
+        self.eyesight_disabled = disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=comm_ctrl)
+
 
     # *** steering ***
     if (self.frame % self.p.STEER_STEP) == 0:
