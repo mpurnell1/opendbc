@@ -35,6 +35,7 @@ class CarController(CarControllerBase, SnGCarController):
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
     self.eyesight_disabled = not (CP.flags & SubaruFlags.DISABLE_EYESIGHT)
+    self.eyesight_disable_frames = 0
 
     if CP.flags & SubaruFlags.LKAS_ANGLE:
       self.VM = VehicleModel(get_safety_CP())
@@ -46,14 +47,18 @@ class CarController(CarControllerBase, SnGCarController):
 
     can_sends = []
 
-    # Deferred EyeSight disable for LKAS_ANGLE: runs once after panda is in subaru safety mode
+    # Deferred EyeSight disable for LKAS_ANGLE: wait for panda to switch to subaru safety mode.
+    # init() and the first update() run in the same card.py cycle, before pandad processes
+    # ControlsReady. Skip a few frames to let the safety mode switch complete.
     if not self.eyesight_disabled:
-      from opendbc.car.subaru.interface import CarInterface
-      deferred = getattr(CarInterface, '_deferred_disable', None)
-      if deferred is not None:
-        can_recv, can_send, comm_ctrl = deferred
-        CarInterface._deferred_disable = None
-        self.eyesight_disabled = disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=comm_ctrl)
+      self.eyesight_disable_frames += 1
+      if self.eyesight_disable_frames > 10:
+        from opendbc.car.subaru.interface import CarInterface
+        deferred = getattr(CarInterface, '_deferred_disable', None)
+        if deferred is not None:
+          can_recv, can_send, comm_ctrl = deferred
+          CarInterface._deferred_disable = None
+          self.eyesight_disabled = disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=comm_ctrl)
 
 
     # *** steering ***
