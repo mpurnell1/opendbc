@@ -125,14 +125,7 @@ class CarInterface(CarInterfaceBase):
         communication_control = bytes([uds.SERVICE_TYPE.COMMUNICATION_CONTROL, uds.CONTROL_TYPE.DISABLE_RX_DISABLE_TX, uds.MESSAGE_TYPE.NORMAL])
 
 
-      # LKAS_ANGLE (Gen2) EyeSight disable is deferred because init() runs before the panda
-      # switches from elm327 to subaru safety mode, and CommunicationControl (0x28) on bus 2
-      # gets rejected with conditionsNotCorrect (0x22) in elm327 mode.
-      # Store callbacks so CarController can run disable_ecu after the safety mode switch.
-      if CP.flags & SubaruFlags.LKAS_ANGLE:
-        CarInterface._deferred_disable = (can_recv, can_send, communication_control)
-      else:
-        disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=communication_control)
+      disable_ecu(can_recv, can_send, bus=2, addr=GLOBAL_ES_ADDR, com_cont_req=communication_control)
 
   @staticmethod
   def deinit(CP, can_recv, can_send):
