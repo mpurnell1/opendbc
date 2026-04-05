@@ -13,12 +13,12 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 
-# Taper LKAS torque at high steering angles to reduce EPS thermal load.
-# The EPS faults under sustained high torque at large angles where power
-# steering is already working hard. Reducing our contribution gives headroom.
-ANGLE_TAPER_SOFT = 80   # deg: start reducing torque above this angle
-ANGLE_TAPER_HARD = 150  # deg: minimum torque scale above this angle
-ANGLE_TAPER_MIN_SCALE = 0.3
+# Stock Eyesight LKAS only commands torque below ~30 deg steering angle.
+# The EPS thermal protection is sized for power steering + small LKAS nudges,
+# not sustained LKAS commands at high angles. Use common_fault_avoidance to
+# periodically cut the steer request at high angles, matching stock behavior.
+MAX_STEER_ANGLE = 40  # deg: cut steer request above this angle
+MAX_STEER_ANGLE_FRAMES = 6  # consecutive high-angle frames before cutting
 
 
 class CarController(CarControllerBase, SnGCarController):
@@ -29,6 +29,7 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.cruise_button_prev = 0
     self.steer_rate_counter = 0
+    self.steer_angle_counter = 0
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
@@ -63,12 +64,12 @@ class CarController(CarControllerBase, SnGCarController):
             common_fault_avoidance(abs(CS.out.steeringRateDeg) > MAX_STEER_RATE, apply_steer_req,
                                    self.steer_rate_counter, MAX_STEER_RATE_FRAMES)
 
-          # Reduce torque at high steering angles to prevent EPS thermal faults
-          angle_scale = float(np.interp(abs(CS.out.steeringAngleDeg),
-                                        [ANGLE_TAPER_SOFT, ANGLE_TAPER_HARD],
-                                        [1.0, ANGLE_TAPER_MIN_SCALE]))
-          if angle_scale < 1.0:
-            apply_torque = int(round(apply_torque * angle_scale))
+          # High angle fault prevention: periodically cut steer request at high
+          # angles. Stock LKAS doesn't command above ~30 deg, so the EPS isn't
+          # designed for sustained LKAS at high angles.
+          self.steer_angle_counter, apply_steer_req = \
+            common_fault_avoidance(abs(CS.out.steeringAngleDeg) > MAX_STEER_ANGLE, apply_steer_req,
+                                   self.steer_angle_counter, MAX_STEER_ANGLE_FRAMES)
 
         can_sends.append(subarucan.create_steering_control(self.packer, apply_torque, apply_steer_req))
 
