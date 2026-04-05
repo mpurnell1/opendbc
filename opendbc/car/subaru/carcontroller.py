@@ -12,6 +12,8 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 # involves the total steering angle change rather than rate, but these limits work well for now
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 6  # tx control frames needed before torque can be cut
+MAX_EPS_LOAD_FRAMES = 10  # tx frames of high mismatch with EPS inactive before cutting request
+EPS_LOAD_MISMATCH_THRESHOLD = 500  # mismatch above which the EPS is considered loaded
 
 
 class CarController(CarControllerBase, SnGCarController):
@@ -22,6 +24,7 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.cruise_button_prev = 0
     self.steer_rate_counter = 0
+    self.eps_load_counter = 0
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
@@ -55,6 +58,15 @@ class CarController(CarControllerBase, SnGCarController):
           self.steer_rate_counter, apply_steer_req = \
             common_fault_avoidance(abs(CS.out.steeringRateDeg) > MAX_STEER_RATE, apply_steer_req,
                                    self.steer_rate_counter, MAX_STEER_RATE_FRAMES)
+
+          # EPS sustained load fault prevention: when the EPS drops Steering_Active
+          # while under high load, it's signaling it needs a break. Cut the request
+          # before it escalates to Steer_Warning.
+          mismatch = max(0, abs(CS.out.steeringTorqueEps) - abs(CS.out.steeringTorque))
+          eps_loaded = not CS.steering_active and mismatch > EPS_LOAD_MISMATCH_THRESHOLD
+          self.eps_load_counter, apply_steer_req = \
+            common_fault_avoidance(eps_loaded, apply_steer_req,
+                                   self.eps_load_counter, MAX_EPS_LOAD_FRAMES)
 
         can_sends.append(subarucan.create_steering_control(self.packer, apply_torque, apply_steer_req))
 
