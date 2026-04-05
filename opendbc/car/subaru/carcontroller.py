@@ -11,7 +11,7 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 # FIXME: These limits aren't exact. The real limit is more than likely over a larger time period and
 # involves the total steering angle change rather than rate, but these limits work well for now
 MAX_STEER_RATE = 25  # deg/s
-MAX_STEER_RATE_FRAMES = 6  # tx control frames needed before torque can be cut
+MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 MAX_EPS_LOAD_FRAMES = 10  # tx frames of high mismatch with EPS inactive before cutting request
 EPS_LOAD_MISMATCH_THRESHOLD = 500  # mismatch above which the EPS is considered loaded
 
