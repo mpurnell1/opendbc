@@ -13,6 +13,17 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 
+# High-angle EPS fault prevention. The EPS sets Steer_Warning when the LKAS
+# request bit is held active at large steering angles, independent of the
+# commanded torque (FORESTER rlogs show faults 0.2-1.7s after crossing ~95 deg,
+# including with near-zero torque commanded; none below 95 deg). Duty-cycling
+# the request via common_fault_avoidance is not sufficient for this sustained
+# condition, so the request is held off continuously past the limit, with
+# hysteresis and a torque taper to keep the handoff smooth.
+ANGLE_TAPER_START = 70     # deg: begin tapering torque toward zero
+MAX_STEER_ANGLE = 88       # deg: hold steer request off above this angle
+STEER_ANGLE_REENGAGE = 80  # deg: restore steer request below this angle
+
 
 class CarController(CarControllerBase, SnGCarController):
   def __init__(self, dbc_names, CP, CP_SP):
@@ -22,6 +33,7 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.cruise_button_prev = 0
     self.steer_rate_counter = 0
+    self.high_angle_cut = False
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
@@ -36,6 +48,12 @@ class CarController(CarControllerBase, SnGCarController):
     # *** steering ***
     if (self.frame % self.p.STEER_STEP) == 0:
       apply_torque = int(round(actuators.torque * self.p.STEER_MAX))
+
+      if not (self.CP.flags & SubaruFlags.PREGLOBAL):
+        # taper torque toward zero approaching the high-angle request cut
+        taper = float(np.interp(abs(CS.out.steeringAngleDeg),
+                                [ANGLE_TAPER_START, MAX_STEER_ANGLE], [1.0, 0.0]))
+        apply_torque = int(round(apply_torque * taper))
 
       # limits due to driver torque
 
@@ -55,6 +73,15 @@ class CarController(CarControllerBase, SnGCarController):
           self.steer_rate_counter, apply_steer_req = \
             common_fault_avoidance(abs(CS.out.steeringRateDeg) > MAX_STEER_RATE, apply_steer_req,
                                    self.steer_rate_counter, MAX_STEER_RATE_FRAMES)
+
+        # High-angle fault prevention: hold the request off (not duty-cycled)
+        # until the wheel unwinds below the re-engage angle
+        if abs(CS.out.steeringAngleDeg) > MAX_STEER_ANGLE:
+          self.high_angle_cut = True
+        elif abs(CS.out.steeringAngleDeg) < STEER_ANGLE_REENGAGE:
+          self.high_angle_cut = False
+        if self.high_angle_cut:
+          apply_steer_req = False
 
         can_sends.append(subarucan.create_steering_control(self.packer, apply_torque, apply_steer_req))
 
