@@ -27,6 +27,7 @@ MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 # escalation with >=80ms of lead.
 STEER_REFUSAL_FRAMES = 3   # consecutive tx frames of refusal before cutting request
 STEER_REPROBE_FRAMES = 10  # tx frames to hold the request off before re-probing
+STEER_REFUSAL_ALERT_FRAMES = 25  # tx frames (0.5s) of continuous refusal before alerting the driver
 
 
 class CarController(CarControllerBase, SnGCarController):
@@ -40,6 +41,7 @@ class CarController(CarControllerBase, SnGCarController):
     self.refusal_counter = 0
     self.reprobe_counter = 0
     self.eps_active_seen = False
+    self.eps_inactive_frames = 0
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
@@ -77,6 +79,18 @@ class CarController(CarControllerBase, SnGCarController):
         # EPS refusal guard (see comment above). Refusal detection is armed only
         # after Steering_Active has been seen high, so the normal engagement
         # handshake latency is not mistaken for a refusal.
+        # Track continuous refusal time for the driver alert: while lat is
+        # active and the EPS has been seen willing once, count frames since
+        # Steering_Active was last high (reprobe-off frames included — the
+        # EPS is still refusing during them).
+        if not CC.latActive or not self.eps_active_seen:
+          self.eps_inactive_frames = 0
+        elif CS.steering_active:
+          self.eps_inactive_frames = 0
+        else:
+          self.eps_inactive_frames += 1
+        CS.steer_refusal_alert = self.eps_inactive_frames >= STEER_REFUSAL_ALERT_FRAMES
+
         if not CC.latActive:
           self.eps_active_seen = False
           self.refusal_counter = 0

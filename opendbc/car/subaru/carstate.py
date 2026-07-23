@@ -20,6 +20,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
 
     self.angle_rate_calulator = CanSignalRateCalculator(50)
     self.steering_active = False
+    self.steer_refusal_alert = False  # set by carcontroller on sustained EPS refusal
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -119,7 +120,10 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.cruise_button = cp_cam.vl["ES_Distance"]["Cruise_Button"]
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
-      ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1
+      # Real Steer_Warning, or a sustained EPS refusal flagged by the
+      # carcontroller — both mean the driver is steering unassisted right now,
+      # and both clear as soon as assist resumes.
+      ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.steer_refusal_alert
       # EPS handshake: high while the EPS is honoring our LKAS request. Goes low
       # (a soft refusal) before escalating to Steer_Warning if the request persists.
       self.steering_active = cp.vl["Steering_Torque_2"]["Steering_Active"] == 1
