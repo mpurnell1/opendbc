@@ -13,16 +13,20 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 
-# High-angle EPS fault prevention. The EPS sets Steer_Warning when the LKAS
-# request bit is held active at large steering angles, independent of the
-# commanded torque (FORESTER rlogs show faults 0.2-1.7s after crossing ~95 deg,
-# including with near-zero torque commanded; none below 95 deg). Duty-cycling
-# the request via common_fault_avoidance is not sufficient for this sustained
-# condition, so the request is held off continuously past the limit, with
-# hysteresis and a torque taper to keep the handoff smooth.
-ANGLE_TAPER_START = 70     # deg: begin tapering torque toward zero
-MAX_STEER_ANGLE = 88       # deg: hold steer request off above this angle
-STEER_ANGLE_REENGAGE = 80  # deg: restore steer request below this angle
+# Reactive EPS fault prevention. The EPS drops Steering_Active (a soft refusal,
+# typically at high steering angle) while it is unwilling to honor the LKAS
+# request; if the request is held through a refusal for more than ~0.2s it
+# escalates to Steer_Warning and a ~4.5s lockout (FORESTER rlogs: refusals
+# precede 21/22 warnings, median 0.22s lead; the EPS applies no LKAS torque
+# during a refusal, so cutting the request here gives up nothing). Cut the
+# request promptly on refusal, then periodically re-probe: the EPS re-asserts
+# Steering_Active when it is willing again.
+# A willing EPS asserts Steering_Active within ~30ms of a request (measured
+# p90 27ms over 463 engagements), so 3 frames (60ms) distinguishes a refusal
+# from handshake latency while still beating every observed refusal->warning
+# escalation with >=80ms of lead.
+STEER_REFUSAL_FRAMES = 3   # consecutive tx frames of refusal before cutting request
+STEER_REPROBE_FRAMES = 10  # tx frames to hold the request off before re-probing
 
 
 class CarController(CarControllerBase, SnGCarController):
@@ -33,7 +37,9 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.cruise_button_prev = 0
     self.steer_rate_counter = 0
-    self.high_angle_cut = False
+    self.refusal_counter = 0
+    self.reprobe_counter = 0
+    self.eps_active_seen = False
 
     self.p = CarControllerParams(CP)
     self.packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
@@ -48,12 +54,6 @@ class CarController(CarControllerBase, SnGCarController):
     # *** steering ***
     if (self.frame % self.p.STEER_STEP) == 0:
       apply_torque = int(round(actuators.torque * self.p.STEER_MAX))
-
-      if not (self.CP.flags & SubaruFlags.PREGLOBAL):
-        # taper torque toward zero approaching the high-angle request cut
-        taper = float(np.interp(abs(CS.out.steeringAngleDeg),
-                                [ANGLE_TAPER_START, MAX_STEER_ANGLE], [1.0, 0.0]))
-        apply_torque = int(round(apply_torque * taper))
 
       # limits due to driver torque
 
@@ -74,14 +74,26 @@ class CarController(CarControllerBase, SnGCarController):
             common_fault_avoidance(abs(CS.out.steeringRateDeg) > MAX_STEER_RATE, apply_steer_req,
                                    self.steer_rate_counter, MAX_STEER_RATE_FRAMES)
 
-        # High-angle fault prevention: hold the request off (not duty-cycled)
-        # until the wheel unwinds below the re-engage angle
-        if abs(CS.out.steeringAngleDeg) > MAX_STEER_ANGLE:
-          self.high_angle_cut = True
-        elif abs(CS.out.steeringAngleDeg) < STEER_ANGLE_REENGAGE:
-          self.high_angle_cut = False
-        if self.high_angle_cut:
+        # EPS refusal guard (see comment above). Refusal detection is armed only
+        # after Steering_Active has been seen high, so the normal engagement
+        # handshake latency is not mistaken for a refusal.
+        if not CC.latActive:
+          self.eps_active_seen = False
+          self.refusal_counter = 0
+          self.reprobe_counter = 0
+        elif self.reprobe_counter > 0:
+          self.reprobe_counter -= 1
           apply_steer_req = False
+        elif apply_steer_req:
+          if CS.steering_active:
+            self.eps_active_seen = True
+            self.refusal_counter = 0
+          elif self.eps_active_seen:
+            self.refusal_counter += 1
+            if self.refusal_counter >= STEER_REFUSAL_FRAMES:
+              self.refusal_counter = 0
+              self.reprobe_counter = STEER_REPROBE_FRAMES
+              apply_steer_req = False
 
         can_sends.append(subarucan.create_steering_control(self.packer, apply_torque, apply_steer_req))
 
