@@ -67,9 +67,6 @@ class CarController(CarControllerBase, SnGCarController):
             common_fault_avoidance(abs(CS.out.steeringRateDeg) > MAX_STEER_RATE, apply_steer_req,
                                    self.steer_rate_counter, MAX_STEER_RATE_FRAMES)
 
-        # EPS refusal guard (see comment above). Refusal detection is armed only
-        # after Steering_Active has been seen high, so the normal engagement
-        # handshake latency is not mistaken for a refusal.
         # High-angle fault prevention: a single clean cut per episode, with
         # hysteresis so the request never toggles at the boundary. The driver
         # is alerted (steerTempUnavailable) for the duration of the cut.
