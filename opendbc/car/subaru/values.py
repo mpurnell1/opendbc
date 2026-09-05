@@ -73,6 +73,9 @@ class SubaruFlags(IntFlag):
   HYBRID = 32
   LKAS_ANGLE = 64
 
+  # Cars whose EPS faults when LKAS_Request is held above ~92 deg without driver torque
+  HIGH_ANGLE_FAULT = 128
+
 
 GLOBAL_ES_ADDR = 0x787
 GEN2_ES_BUTTONS_DID = b'\x11\x30'
@@ -162,7 +165,7 @@ class CAR(Platforms):
   SUBARU_FORESTER = SubaruPlatformConfig(
     [SubaruCarDocs("Subaru Forester 2019-21", "All")],
     CarSpecs(mass=1568, wheelbase=2.67, steerRatio=17),
-    flags=SubaruFlags.STEER_RATE_LIMITED,
+    flags=SubaruFlags.STEER_RATE_LIMITED | SubaruFlags.HIGH_ANGLE_FAULT,
   )
   SUBARU_FORESTER_HYBRID = SubaruPlatformConfig(
     [SubaruCarDocs("Subaru Forester Hybrid 2020")],
