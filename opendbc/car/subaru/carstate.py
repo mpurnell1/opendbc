@@ -9,6 +9,12 @@ from opendbc.car import CanSignalRateCalculator
 from opendbc.sunnypilot.car.subaru.mads import MadsCarState
 from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarState
 
+# The EPS faults (Steer_Warning, 4.5 s lockout) within a few frames of the driver's torque
+# dropping while LKAS_Request is held above ~92 deg, so the request is dropped on angle,
+# before the hands come off. Toggling the request latches Steer_Error_1, hence the hysteresis.
+HIGH_ANGLE_CUT_DEG = 92
+HIGH_ANGLE_RESTORE_DEG = 84
+
 
 class CarState(CarStateBase, MadsCarState, SnGCarState):
   def __init__(self, CP, CP_SP):
@@ -19,6 +25,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
     self.shifter_values = can_define.dv["Transmission"]["Gear"]
 
     self.angle_rate_calulator = CanSignalRateCalculator(50)
+    self.high_angle_cut = False
 
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
@@ -118,7 +125,12 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.cruise_button = cp_cam.vl["ES_Distance"]["Cruise_Button"]
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
-      ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1
+      if self.CP.flags & SubaruFlags.HIGH_ANGLE_FAULT:
+        if abs(ret.steeringAngleDeg) > HIGH_ANGLE_CUT_DEG:
+          self.high_angle_cut = True
+        elif abs(ret.steeringAngleDeg) < HIGH_ANGLE_RESTORE_DEG:
+          self.high_angle_cut = False
+      ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.high_angle_cut
       ret.cruiseState.nonAdaptive = cp_cam.vl["ES_DashStatus"]["Conventional_Cruise"] == 1
       ret.cruiseState.standstill = cp_cam.vl["ES_DashStatus"]["Cruise_State"] == 3
       ret.stockFcw = (cp_cam.vl["ES_LKAS_State"]["LKAS_Alert"] == 1) or \
