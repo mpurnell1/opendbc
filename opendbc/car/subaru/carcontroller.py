@@ -63,8 +63,21 @@ class CarController(CarControllerBase, SnGCarController):
     # *** longitudinal ***
 
     if CC.longActive:
-      apply_throttle = int(round(np.interp(actuators.accel, CarControllerParams.THROTTLE_LOOKUP_BP, CarControllerParams.THROTTLE_LOOKUP_V)))
-      apply_rpm = int(round(np.interp(actuators.accel, CarControllerParams.RPM_LOOKUP_BP, CarControllerParams.RPM_LOOKUP_V)))
+      # Speed-dependent feedforward: the throttle/RPM needed to hold the current speed, with the
+      # stock per-m/s^2 authority applied on top. Deceleration uses a steeper slope so that
+      # engine braking is reached at a reasonable request (~-1.7 m/s^2) rather than requiring the
+      # full ACCEL_MIN; fitted to a measured 0.26 m/s^2 deceleration shortfall.
+      v_ego = CS.out.vEgo
+      thr_hold = float(np.interp(v_ego, CarControllerParams.THROTTLE_HOLD_BP, CarControllerParams.THROTTLE_HOLD_V))
+      rpm_hold = float(np.interp(v_ego, CarControllerParams.RPM_HOLD_BP, CarControllerParams.RPM_HOLD_V))
+      thr_gain = (CarControllerParams.THROTTLE_MAX - CarControllerParams.THROTTLE_INACTIVE) / 2.0
+      rpm_gain = (CarControllerParams.RPM_MAX - CarControllerParams.RPM_INACTIVE) / 2.0
+      thr_slope = thr_gain if actuators.accel >= 0.0 else thr_gain * 1.5
+      apply_throttle = int(round(np.clip(thr_hold + actuators.accel * thr_slope,
+                                         CarControllerParams.THROTTLE_ENGINE_BRAKE,
+                                         CarControllerParams.THROTTLE_MAX)))
+      apply_rpm = int(round(np.clip(rpm_hold + actuators.accel * rpm_gain,
+                                    CarControllerParams.RPM_MIN, CarControllerParams.RPM_MAX)))
       apply_brake = int(round(np.interp(actuators.accel, CarControllerParams.BRAKE_LOOKUP_BP, CarControllerParams.BRAKE_LOOKUP_V)))
 
       # limit min and max values
