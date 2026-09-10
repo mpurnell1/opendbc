@@ -10,10 +10,12 @@ from opendbc.sunnypilot.car.subaru.mads import MadsCarState
 from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarState
 
 # The EPS faults (Steer_Warning, 4.5 s lockout) within a few frames of the driver's torque
-# dropping while LKAS_Request is held above ~92 deg, so the request is dropped on angle,
-# before the hands come off. Toggling the request latches Steer_Error_1, hence the hysteresis.
+# dropping while LKAS_Request is held above ~92 deg; with a hand on the wheel it takes full
+# assist at any angle. Dropping the request once the angle is high and the grip is light leads
+# the fault by 0.16 s or more. Toggling the request latches Steer_Error_1, hence the hysteresis.
 HIGH_ANGLE_CUT_DEG = 92
 HIGH_ANGLE_RESTORE_DEG = 84
+HIGH_ANGLE_HANDS_ON_TORQUE = 150
 
 
 class CarState(CarStateBase, MadsCarState, SnGCarState):
@@ -126,7 +128,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
       if self.CP.flags & SubaruFlags.HIGH_ANGLE_FAULT:
-        if abs(ret.steeringAngleDeg) > HIGH_ANGLE_CUT_DEG:
+        if abs(ret.steeringAngleDeg) > HIGH_ANGLE_CUT_DEG and abs(ret.steeringTorque) < HIGH_ANGLE_HANDS_ON_TORQUE:
           self.high_angle_cut = True
         elif abs(ret.steeringAngleDeg) < HIGH_ANGLE_RESTORE_DEG:
           self.high_angle_cut = False
