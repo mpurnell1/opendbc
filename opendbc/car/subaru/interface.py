@@ -3,7 +3,7 @@ from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.subaru.carcontroller import CarController
 from opendbc.car.subaru.carstate import CarState
-from opendbc.car.subaru.values import CAR, GLOBAL_ES_ADDR, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, GLOBAL_ES_ADDR, SubaruFlags, SubaruSafetyFlags, LONG_HOLD_TABLES
 
 
 class CarInterface(CarInterfaceBase):
@@ -87,8 +87,7 @@ class CarInterface(CarInterfaceBase):
     else:
       raise ValueError(f"unknown car: {candidate}")
 
-    ret.alphaLongitudinalAvailable = not (ret.flags & (SubaruFlags.GLOBAL_GEN2 | SubaruFlags.PREGLOBAL |
-                                                       SubaruFlags.LKAS_ANGLE | SubaruFlags.HYBRID))
+    ret.alphaLongitudinalAvailable = candidate in LONG_HOLD_TABLES
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable
 
     if ret.flags & SubaruFlags.GLOBAL_GEN2 and ret.openpilotLongitudinalControl:

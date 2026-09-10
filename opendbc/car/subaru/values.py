@@ -28,6 +28,9 @@ class CarControllerParams:
     else:
       self.STEER_MAX = 2047
 
+    self.HOLD_BP, self.THROTTLE_HOLD_V, self.RPM_HOLD_V = LONG_HOLD_TABLES.get(CP.carFingerprint,
+                                                                              ([0.0], [self.THROTTLE_INACTIVE], [self.RPM_INACTIVE]))
+
   THROTTLE_MIN = 808
   THROTTLE_MAX = 3400
 
@@ -48,24 +51,6 @@ class CarControllerParams:
   RPM_LOOKUP_BP = [0, 2]
   RPM_LOOKUP_V = [RPM_INACTIVE, RPM_MAX]
 
-
-  # Speed-dependent longitudinal feedforward.
-  #
-  # The stock accel->throttle map is speed-independent, so a requested acceleration of zero always
-  # commands THROTTLE_INACTIVE. On a 2021 Crosstrek that value is only correct near 36-43 mph;
-  # road load rises with v^2, so at highway speed the same command is a deceleration request and
-  # the car cannot hold its set speed. Since the longitudinal loop has no integrator
-  # (kp = ki = 0 by design), a feedforward error of this kind becomes a permanent speed offset -
-  # measured at a steady -4.3 mph on level ground before this change.
-  #
-  # Values are the throttle/CVT-RPM required to HOLD speed, measured at equilibrium (engaged,
-  # level ground, lead-free, pedals released, grade-compensated acceleration ~0) over 16,968
-  # samples on one vehicle. Below 8 m/s the stock value is retained: Subaru will not let cruise
-  # be set below 20 mph, so there is no engaged data down there to fit.
-  THROTTLE_HOLD_BP = [0.0, 8.0, 10.0, 16.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.5]
-  THROTTLE_HOLD_V  = [1818, 1818, 1976, 2285, 2798, 2798, 2798, 2857, 2918, 3216, 3216]
-  RPM_HOLD_BP      = [0.0, 8.0, 10.0, 16.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.5]
-  RPM_HOLD_V       = [600,  600,  901, 1486, 2020, 2034, 2034, 2034, 2034, 2198, 2198]
 
   BRAKE_LOOKUP_BP = [-3.5, 0]
   BRAKE_LOOKUP_V = [BRAKE_MAX, BRAKE_MIN]
@@ -233,6 +218,23 @@ class CAR(Platforms):
     flags=SubaruFlags.LKAS_ANGLE,
   )
 
+
+# EyeSight's own Cruise_Throttle and Cruise_RPM while holding speed on level ground with no lead,
+# per platform, read from stock ACC logs: the Forester from about 980k frames on two devices, the
+# Crosstrek from 16,968 samples on one car. Cruise cannot be set under 20 mph, so the stock inactive
+# values stand in below 8 m/s. Platforms without a table are not offered alpha long.
+LONG_HOLD_TABLES = {
+  CAR.SUBARU_IMPREZA_2020: (
+    [0.0, 8.0, 10.0, 16.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.5],
+    [1818, 1818, 1976, 2285, 2798, 2798, 2798, 2857, 2918, 3216, 3216],
+    [600, 600, 901, 1486, 2020, 2034, 2034, 2034, 2034, 2198, 2198],
+  ),
+  CAR.SUBARU_FORESTER: (
+    [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0],
+    [1818, 1876, 1958, 1980, 2119, 2157, 2267, 2467, 2608, 2636, 2701, 2765, 2883, 2999, 3142, 3203],
+    [600, 1066, 1095, 1116, 1152, 1169, 1193, 1264, 1334, 1456, 1611, 1677, 1788, 1982, 2156, 2326],
+  ),
+}
 
 SUBARU_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \
   p16(uds.DATA_IDENTIFIER_TYPE.APPLICATION_DATA_IDENTIFICATION)

@@ -68,8 +68,8 @@ class CarController(CarControllerBase, SnGCarController):
       # engine braking is reached at a reasonable request (~-1.7 m/s^2) rather than requiring the
       # full ACCEL_MIN; fitted to a measured 0.26 m/s^2 deceleration shortfall.
       v_ego = CS.out.vEgo
-      thr_hold = float(np.interp(v_ego, CarControllerParams.THROTTLE_HOLD_BP, CarControllerParams.THROTTLE_HOLD_V))
-      rpm_hold = float(np.interp(v_ego, CarControllerParams.RPM_HOLD_BP, CarControllerParams.RPM_HOLD_V))
+      thr_hold = float(np.interp(v_ego, self.p.HOLD_BP, self.p.THROTTLE_HOLD_V))
+      rpm_hold = float(np.interp(v_ego, self.p.HOLD_BP, self.p.RPM_HOLD_V))
       thr_gain = (CarControllerParams.THROTTLE_MAX - CarControllerParams.THROTTLE_INACTIVE) / 2.0
       rpm_gain = (CarControllerParams.RPM_MAX - CarControllerParams.RPM_INACTIVE) / 2.0
       thr_slope = thr_gain if actuators.accel >= 0.0 else thr_gain * 1.5

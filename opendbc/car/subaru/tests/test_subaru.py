@@ -6,7 +6,9 @@ from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
-from opendbc.car.subaru.values import DBC, SubaruFlags
+import numpy as np
+from opendbc.car import structs
+from opendbc.car.subaru.values import DBC, LONG_HOLD_TABLES, SubaruFlags
 
 
 class TestSubaruFingerprint(unittest.TestCase):
@@ -82,3 +84,36 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     ci, packer = self._interface("SUBARU_FORESTER")
     assert self._step(ci, packer, 0, warning=1)
     assert not self._step(ci, packer, 0, warning=0)
+
+
+class TestSubaruLongHold(unittest.TestCase):
+  def _interface(self, car, alpha_long):
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=alpha_long, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP)
+
+  def test_alpha_long_follows_the_table(self):
+    for car in LONG_HOLD_TABLES:
+      assert self._interface(car, True).CP.openpilotLongitudinalControl, car
+    assert not self._interface("SUBARU_ASCENT", True).CP.alphaLongitudinalAvailable
+
+  def test_zero_accel_commands_the_hold_point(self):
+    for car, (bp, thr_v, rpm_v) in LONG_HOLD_TABLES.items():
+      ci = self._interface(car, True)
+      ci.update([(0, [])])
+      v_ego = 25.0
+      ci.CS.out.vEgo = v_ego
+      CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+      CC_SP = structs.CarControlSP()
+      thr = rpm = None
+      for _ in range(20):
+        _, sends = ci.apply(CC, CC_SP, 0)
+        for addr, dat, _ in sends:
+          if addr == 0x221:
+            thr = int.from_bytes(dat[2:4], "little") & 0x1FFF
+          if addr == 0x222:
+            rpm = int.from_bytes(dat[2:4], "little") & 0x1FFF
+      assert thr == int(round(np.interp(v_ego, bp, thr_v))), (car, thr)
+      assert rpm == int(round(np.interp(v_ego, bp, rpm_v))), (car, rpm)
