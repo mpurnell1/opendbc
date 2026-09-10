@@ -4,7 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
-from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_RESTORE_DEG
+from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.subaru.values import DBC, SubaruFlags
 
@@ -28,8 +28,9 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     self._step(ci, packer, 0)  # the parser drops the first frame after construction
     return ci, packer
 
-  def _step(self, ci, packer, angle, warning=0):
-    frame = CanData(*packer.make_can_msg("Steering_Torque", 0, {"Steering_Angle": angle, "Steer_Warning": warning}))
+  def _step(self, ci, packer, angle, warning=0, torque=0):
+    values = {"Steering_Angle": angle, "Steer_Warning": warning, "Steer_Torque_Sensor": torque}
+    frame = CanData(*packer.make_can_msg("Steering_Torque", 0, values))
     cs, _ = ci.update([(0, [frame])])
     return cs.steerFaultTemporary
 
@@ -61,6 +62,21 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     assert edges == 2, edges
     assert flags[profile.index(HIGH_ANGLE_CUT_DEG + 1)]
     assert not flags[-1]
+
+  def test_hands_on_defers_cut(self):
+    ci, packer = self._interface("SUBARU_FORESTER")
+    cut, restore, hands_on = HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_RESTORE_DEG, HIGH_ANGLE_HANDS_ON_TORQUE + 10
+    for angle in (cut + 1, cut + 40, cut + 80, -(cut + 80)):
+      assert not self._step(ci, packer, angle, torque=hands_on), angle
+    assert not self._step(ci, packer, cut + 80, torque=-hands_on)
+    # steered through by hand the whole way: no cut, whatever the grip does once back under the band
+    assert not self._step(ci, packer, restore - 1, torque=0)
+    # grip relaxes at the apex: cut, held through a re-grip until the wheel unwinds
+    assert not self._step(ci, packer, cut + 80, torque=hands_on)
+    assert self._step(ci, packer, cut + 80, torque=HIGH_ANGLE_HANDS_ON_TORQUE - 10)
+    assert self._step(ci, packer, cut + 80, torque=hands_on)
+    assert self._step(ci, packer, restore + 1, torque=hands_on)
+    assert not self._step(ci, packer, restore - 1, torque=hands_on)
 
   def test_real_warning_still_reported(self):
     ci, packer = self._interface("SUBARU_FORESTER")
