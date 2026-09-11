@@ -34,9 +34,13 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     cs, _ = ci.update([(0, [frame])])
     return cs.steerFaultTemporary
 
-  def test_forester_has_flag(self):
-    ci, _ = self._interface("SUBARU_FORESTER")
-    assert ci.CP.flags & SubaruFlags.HIGH_ANGLE_FAULT
+  def test_follows_the_eps_generation(self):
+    for car in ("SUBARU_FORESTER", "SUBARU_OUTBACK", "SUBARU_LEGACY", "SUBARU_IMPREZA_2020"):
+      ci, packer = self._interface(car)
+      assert ci.CP.flags & SubaruFlags.STEER_RATE_LIMITED, car
+      assert self._step(ci, packer, HIGH_ANGLE_CUT_DEG + 30), car
+    ci, packer = self._interface("SUBARU_IMPREZA")
+    assert not self._step(ci, packer, HIGH_ANGLE_CUT_DEG + 30)
 
   def test_latch_with_hysteresis(self):
     ci, packer = self._interface("SUBARU_FORESTER")

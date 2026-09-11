@@ -66,15 +66,13 @@ class SubaruFlags(IntFlag):
   # Static flags
   GLOBAL_GEN2 = 4
 
-  # Cars that temporarily fault when steering angle rate is greater than some threshold.
+  # Cars whose EPS temporarily faults when the steering angle rate is greater than some threshold, and when
+  # LKAS_Request is held above ~92 deg without the driver's torque on the wheel.
   # Appears to be all torque-based cars produced around 2019 - present
   STEER_RATE_LIMITED = 8
   PREGLOBAL = 16
   HYBRID = 32
   LKAS_ANGLE = 64
-
-  # Cars whose EPS faults when LKAS_Request is held above ~92 deg without driver torque
-  HIGH_ANGLE_FAULT = 128
 
 
 GLOBAL_ES_ADDR = 0x787
@@ -165,7 +163,7 @@ class CAR(Platforms):
   SUBARU_FORESTER = SubaruPlatformConfig(
     [SubaruCarDocs("Subaru Forester 2019-21", "All")],
     CarSpecs(mass=1568, wheelbase=2.67, steerRatio=17),
-    flags=SubaruFlags.STEER_RATE_LIMITED | SubaruFlags.HIGH_ANGLE_FAULT,
+    flags=SubaruFlags.STEER_RATE_LIMITED,
   )
   SUBARU_FORESTER_HYBRID = SubaruPlatformConfig(
     [SubaruCarDocs("Subaru Forester Hybrid 2020")],

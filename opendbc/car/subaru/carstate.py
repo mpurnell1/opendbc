@@ -127,7 +127,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.cruise_button = cp_cam.vl["ES_Distance"]["Cruise_Button"]
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
-      if self.CP.flags & SubaruFlags.HIGH_ANGLE_FAULT:
+      if self.CP.flags & SubaruFlags.STEER_RATE_LIMITED:
         if abs(ret.steeringAngleDeg) > HIGH_ANGLE_CUT_DEG and abs(ret.steeringTorque) < HIGH_ANGLE_HANDS_ON_TORQUE:
           self.high_angle_cut = True
         elif abs(ret.steeringAngleDeg) < HIGH_ANGLE_RESTORE_DEG:
