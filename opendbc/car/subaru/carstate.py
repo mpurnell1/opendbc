@@ -9,13 +9,20 @@ from opendbc.car import CanSignalRateCalculator
 from opendbc.sunnypilot.car.subaru.mads import MadsCarState
 from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarState
 
-# The EPS faults (Steer_Warning, 4.5 s lockout) within a few frames of the driver's torque
-# dropping while LKAS_Request is held above ~92 deg; with a hand on the wheel it takes full
-# assist at any angle. Dropping the request once the angle is high and the grip is light leads
-# the fault by 0.16 s or more. Toggling the request latches Steer_Error_1, hence the hysteresis.
-HIGH_ANGLE_CUT_DEG = 92
+# The EPS withholds assist, and 0.17 s later sets Steer_Warning, while LKAS_Request is up with the
+# VDC's steering angle (Brake_Pressure_L_R) at 90 deg or more, Brake_Pedal speed under 50 km/h and
+# driver torque under 72 on every frame; the warning then holds until the angle has been under 70
+# for 4.3 s. It reads those two messages, not its own angle, which runs up to 27 deg apart at
+# parking speeds. Measured on a bench rack, see eps-bench/BENCHING.md. Cut at 88 because a third
+# of recorded onsets crossed 90 slower than the module tolerates; a request below 90 is accepted at
+# once after a clean cut, and after a refusal Steer_Warning carries the fault until the module
+# releases. A hold of 120 clears the module's 72 by enough that no recorded fault survived it.
+# Reporting the cut as a fault zeroes torque in the frame the request drops, which keeps every
+# frame valid to the panda; a request drop with torque up is rationed and can latch Steer_Error_1.
+HIGH_ANGLE_CUT_DEG = 88
 HIGH_ANGLE_RESTORE_DEG = 84
-HIGH_ANGLE_HANDS_ON_TORQUE = 150
+HIGH_ANGLE_GATE_SPEED_KPH = 50
+HIGH_ANGLE_HANDS_ON_TORQUE = 120
 
 
 class CarState(CarStateBase, MadsCarState, SnGCarState):
@@ -128,9 +135,12 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
       if self.CP.flags & SubaruFlags.STEER_RATE_LIMITED:
-        if abs(ret.steeringAngleDeg) > HIGH_ANGLE_CUT_DEG and abs(ret.steeringTorque) < HIGH_ANGLE_HANDS_ON_TORQUE:
+        gate_angle = abs(cp.vl["Brake_Pressure_L_R"]["Steering_Angle"])
+        gate_armed = cp.vl["Brake_Pedal"]["Speed"] < HIGH_ANGLE_GATE_SPEED_KPH
+        hands_on = abs(ret.steeringTorque) >= HIGH_ANGLE_HANDS_ON_TORQUE
+        if gate_armed and gate_angle >= HIGH_ANGLE_CUT_DEG and not hands_on:
           self.high_angle_cut = True
-        elif abs(ret.steeringAngleDeg) < HIGH_ANGLE_RESTORE_DEG:
+        elif gate_angle < HIGH_ANGLE_RESTORE_DEG or not gate_armed:
           self.high_angle_cut = False
       ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.high_angle_cut
       ret.cruiseState.nonAdaptive = cp_cam.vl["ES_DashStatus"]["Conventional_Cruise"] == 1
