@@ -4,7 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
-from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
+from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.subaru.values import DBC, SubaruFlags
 
@@ -28,10 +28,14 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     self._step(ci, packer, 0)  # the parser drops the first frame after construction
     return ci, packer
 
-  def _step(self, ci, packer, angle, warning=0, torque=0):
-    values = {"Steering_Angle": angle, "Steer_Warning": warning, "Steer_Torque_Sensor": torque}
-    frame = CanData(*packer.make_can_msg("Steering_Torque", 0, values))
-    cs, _ = ci.update([(0, [frame])])
+  def _step(self, ci, packer, angle, warning=0, torque=0, speed=0, eps_angle=None):
+    eps_angle = angle if eps_angle is None else eps_angle
+    frames = [
+      packer.make_can_msg("Brake_Pressure_L_R", 0, {"Steering_Angle": angle}),
+      packer.make_can_msg("Brake_Pedal", 0, {"Speed": speed}),
+      packer.make_can_msg("Steering_Torque", 0, {"Steering_Angle": eps_angle, "Steer_Warning": warning, "Steer_Torque_Sensor": torque}),
+    ]
+    cs, _ = ci.update([(0, [CanData(*f) for f in frames])])
     return cs.steerFaultTemporary
 
   def test_follows_the_eps_generation(self):
@@ -81,6 +85,21 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     assert self._step(ci, packer, cut + 80, torque=hands_on)
     assert self._step(ci, packer, restore + 1, torque=hands_on)
     assert not self._step(ci, packer, restore - 1, torque=hands_on)
+
+  def test_reads_the_vdc_angle(self):
+    ci, packer = self._interface("SUBARU_FORESTER")
+    cut = HIGH_ANGLE_CUT_DEG
+    assert not self._step(ci, packer, cut - 5, eps_angle=cut + 20)
+    assert self._step(ci, packer, cut + 5, eps_angle=cut - 20)
+
+  def test_only_below_the_gate_speed(self):
+    ci, packer = self._interface("SUBARU_FORESTER")
+    cut, fast = HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH + 5
+    for angle in (cut + 1, cut + 80):
+      assert not self._step(ci, packer, angle, speed=fast), angle
+    # a latch taken at parking speed releases as soon as the module's gate disarms
+    assert self._step(ci, packer, cut + 40, speed=HIGH_ANGLE_GATE_SPEED_KPH - 5)
+    assert not self._step(ci, packer, cut + 40, speed=fast)
 
   def test_real_warning_still_reported(self):
     ci, packer = self._interface("SUBARU_FORESTER")
