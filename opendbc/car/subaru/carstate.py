@@ -16,13 +16,13 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarState
 # parking speeds. Measured on a bench rack, see eps-bench/BENCHING.md. Cut at 88 because a third
 # of recorded onsets crossed 90 slower than the module tolerates; a request below 90 is accepted at
 # once after a clean cut, and after a refusal Steer_Warning carries the fault until the module
-# releases. Reporting the cut as a fault zeroes torque in the frame the request drops, which keeps
-# every frame valid to the panda; a request drop with torque up is rationed and can latch
-# Steer_Error_1.
+# releases. A hold of 120 clears the module's 72 by enough that no recorded fault survived it.
+# Reporting the cut as a fault zeroes torque in the frame the request drops, which keeps every
+# frame valid to the panda; a request drop with torque up is rationed and can latch Steer_Error_1.
 HIGH_ANGLE_CUT_DEG = 88
 HIGH_ANGLE_RESTORE_DEG = 84
 HIGH_ANGLE_GATE_SPEED_KPH = 50
-HIGH_ANGLE_HANDS_ON_TORQUE = 150
+HIGH_ANGLE_HANDS_ON_TORQUE = 120
 
 
 class CarState(CarStateBase, MadsCarState, SnGCarState):
