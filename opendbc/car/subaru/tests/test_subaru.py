@@ -6,7 +6,9 @@ from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
-from opendbc.car.subaru.values import DBC, SubaruFlags
+from opendbc.car import structs
+from opendbc.car.subaru.values import DBC, LONG_TUNE, SubaruFlags, long_tune
+import numpy as np
 
 
 class TestSubaruFingerprint(unittest.TestCase):
@@ -105,3 +107,42 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     ci, packer = self._interface("SUBARU_FORESTER")
     assert self._step(ci, packer, 0, warning=1)
     assert not self._step(ci, packer, 0, warning=0)
+
+
+class TestSubaruLongHold(unittest.TestCase):
+  def _interface(self, car, alpha_long):
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=alpha_long, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP)
+
+  def test_forester_has_its_own_hold_pair(self):
+    forester, crosstrek = long_tune("SUBARU_FORESTER"), long_tune("SUBARU_IMPREZA_2020")
+    for key in ("THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V"):
+      assert forester[key] != crosstrek[key], key
+    for key in set(crosstrek) - {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V"}:
+      assert forester[key] == crosstrek[key], key
+    assert long_tune("SUBARU_IMPREZA") == crosstrek
+    assert long_tune("SUBARU_ASCENT") == crosstrek
+
+  def test_zero_accel_commands_the_hold_point(self):
+    v_ego = 25.0
+    for car in LONG_TUNE:
+      ci = self._interface(car, True)
+      assert ci.CP.openpilotLongitudinalControl, car
+      ci.update([(0, [])])
+      ci.CS.out.vEgo = v_ego
+      CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+      CC_SP = structs.CarControlSP()
+      thr = rpm = None
+      for _ in range(20):
+        _, sends = ci.apply(CC, CC_SP, 0)
+        for addr, dat, _ in sends:
+          if addr == 0x221:
+            thr = int.from_bytes(dat[2:4], "little") & 0x1FFF
+          if addr == 0x222:
+            rpm = int.from_bytes(dat[2:4], "little") & 0x1FFF
+      tune = long_tune(car)
+      assert thr == int(round(np.interp(v_ego, tune["THROTTLE_HOLD_BP"], tune["THROTTLE_HOLD_V"]))), (car, thr)
+      assert rpm == int(round(np.interp(v_ego, tune["RPM_HOLD_BP"], tune["RPM_HOLD_V"]))), (car, rpm)
