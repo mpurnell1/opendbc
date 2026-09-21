@@ -68,7 +68,7 @@ def create_brake_pedal(packer, CP, brake_pedal_msg, send_resume):
   return packer.make_can_msg("Brake_Pedal", CanBus.camera, values)
 
 
-def create_cruise_buttons(packer, frame, cruise_buttons_msg):
+def create_cruise_buttons(packer, frame, cruise_buttons_msg, set_pressed, resume_pressed):
   values = {s: cruise_buttons_msg[s] for s in [
     "CHECKSUM",
     "Signal1",
@@ -79,7 +79,23 @@ def create_cruise_buttons(packer, frame, cruise_buttons_msg):
   ]}
 
   values["COUNTER"] = frame % 0x10
-  values["Set"] = 0
-  values["Resume"] = 0
+  values["Set"] = int(set_pressed)
+  values["Resume"] = int(resume_pressed)
 
   return packer.make_can_msg("Cruise_Buttons", CanBus.camera, values)
+
+
+def create_brake_status(packer, frame, brake_status_msg, es_brake):
+  values = {s: brake_status_msg[s] for s in [
+    "CHECKSUM",
+    "Signal1",
+    "ES_Brake",
+    "Signal2",
+    "Brake",
+    "Signal3",
+  ]}
+
+  values["COUNTER"] = frame % 0x10
+  values["ES_Brake"] = int(es_brake)
+
+  return packer.make_can_msg("Brake_Status", CanBus.camera, values)
