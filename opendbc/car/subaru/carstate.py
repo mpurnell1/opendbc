@@ -144,7 +144,11 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
           self.high_angle_cut = False
       ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.high_angle_cut
       ret.cruiseState.nonAdaptive = cp_cam.vl["ES_DashStatus"]["Conventional_Cruise"] == 1
-      ret.cruiseState.standstill = cp_cam.vl["ES_DashStatus"]["Cruise_State"] == 3
+      # Cruise_State is a bitfield (bit0 HOLD, bit1 READY, bit3 OFF), so == 3 was testing
+      # READY+HOLD and missing bare HOLD. It reports stock ACC holding itself, which never
+      # happens while openpilot drives, and longcontrol's starting_condition blocks on it.
+      ret.cruiseState.standstill = not self.CP.openpilotLongitudinalControl and \
+                                   cp_cam.vl["ES_DashStatus"]["Cruise_State"] == 3
       ret.stockFcw = (cp_cam.vl["ES_LKAS_State"]["LKAS_Alert"] == 1) or \
                      (cp_cam.vl["ES_LKAS_State"]["LKAS_Alert"] == 2)
 
