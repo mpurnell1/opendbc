@@ -191,6 +191,49 @@ class TestSubaruStopAndGoUnderLong(unittest.TestCase):
       assert (dat[5] >> 3) & 3 == 0   # Set and Resume, bits 43 and 44
 
 
+class TestSubaruCameraCopies(unittest.TestCase):
+  def _interface(self, alpha_long, sp_flag):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=alpha_long, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
+    CP_SP.flags |= sp_flag.value
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
+
+  def _copies(self, ci, frames, addr, n):
+    ci.update([(0, frames)])  # the parser drops the first frame after construction
+    ci.apply(structs.CarControl(enabled=True).as_reader(), structs.CarControlSP(), 0)
+    out = []
+    for _ in range(n):
+      ci.update([(0, frames)])
+      _, sends = ci.apply(structs.CarControl(enabled=True).as_reader(), structs.CarControlSP(), 0)
+      out += [dat for a, dat, bus in sends if (a, bus) == (addr, 2)]
+    return out
+
+  def test_button_probe_passes_the_driver_and_taps_resume_once(self):
+    ci, packer = self._interface(False, SubaruFlagsSP.CRUISE_BUTTON_PROBE)
+    engaged = [CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1, "Cruise_On": 1})),
+               CanData(*packer.make_can_msg("Cruise_Buttons", 0, {"Main": 1, "Set": 1}))]
+    copies = self._copies(ci, engaged, 0x146, 800)
+    presses = [((d[5] >> 3) & 1, (d[5] >> 4) & 1) for d in copies]
+    assert len(copies) == 400
+    assert all(s == 1 for s, _ in presses)  # the driver's SET rides through
+    resume = [r for _, r in presses]
+    assert sum(resume) == 6 and 1 in resume[248:252], resume.index(1)  # one 120 ms tap, 5 s in
+
+  def test_brake_echo_copy_says_what_the_camera_commanded_and_keeps_the_pedal(self):
+    ci, packer = self._interface(True, SubaruFlagsSP.CAMERA_BRAKE_ECHO)
+    for cam_active, pedal in ((1, 0), (0, 1), (1, 1)):
+      frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Cruise_Brake_Active": cam_active, "Brake_Pressure": 100 * cam_active})),
+                CanData(*packer.make_can_msg("Brake_Status", 0, {"ES_Brake": 1 - cam_active, "Brake": pedal}))]
+      copies = self._copies(ci, frames, 0x13c, 4)
+      assert len(copies) == 2
+      for d in copies:
+        assert (d[7] >> 2) & 1 == cam_active, (cam_active, pedal)  # ES_Brake, bit 58
+        assert (d[7] >> 6) & 1 == pedal, (cam_active, pedal)       # Brake, bit 62
+
+
 class TestSubaruLongHold(unittest.TestCase):
   def _interface(self, car, alpha_long):
     CarInterface = interfaces[car]

@@ -152,11 +152,20 @@ def _initialize_stop_and_go(CP: structs.CarParams, CP_SP: structs.CarParamsSP, p
     if stop_and_go or stop_and_go_manual_parking_brake:
       CP_SP.safetyParam |= SubaruSafetyFlagsSP.STOP_AND_GO
 
-    # Keeps the camera's own ACC out of the loop under openpilot longitudinal: the camera faults itself
-    # about half a second after the car stops following its commands, taking PCB and LDW with it
-    if CP.openpilotLongitudinalControl and int(params_dict.get("SubaruHideCruiseButtons", 0)) == 1:
-      CP_SP.flags |= SubaruFlagsSP.HIDE_CRUISE_BUTTONS.value
-      CP_SP.safetyParam |= SubaruSafetyFlagsSP.HIDE_CRUISE_BUTTONS
+    # The camera faults itself about half a second after the car stops following its ACC commands,
+    # taking PCB and LDW with it. Two experiments against that under openpilot longitudinal: keep its
+    # ACC from engaging by hiding SET and RESUME, or feed it the ES_Brake echo its command expects.
+    # The probe is the stock-longitudinal question of whether it takes a press over CAN at all.
+    if CP.openpilotLongitudinalControl:
+      if int(params_dict.get("SubaruHideCruiseButtons", 0)) == 1:
+        CP_SP.flags |= SubaruFlagsSP.HIDE_CRUISE_BUTTONS.value
+        CP_SP.safetyParam |= SubaruSafetyFlagsSP.HIDE_CRUISE_BUTTONS
+      if int(params_dict.get("SubaruCameraBrakeEcho", 0)) == 1:
+        CP_SP.flags |= SubaruFlagsSP.CAMERA_BRAKE_ECHO.value
+        CP_SP.safetyParam |= SubaruSafetyFlagsSP.CAMERA_BRAKE_ECHO
+    elif int(params_dict.get("SubaruCruiseButtonProbe", 0)) == 1:
+      CP_SP.flags |= SubaruFlagsSP.CRUISE_BUTTON_PROBE.value
+      CP_SP.safetyParam |= SubaruSafetyFlagsSP.CRUISE_BUTTON_PROBE
 
 
 def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
