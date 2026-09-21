@@ -170,6 +170,26 @@ class TestSubaruStopAndGoUnderLong(unittest.TestCase):
     es = {0x122, 0x321, 0x322, 0x222, 0x220, 0x221}
     assert self._sends(alpha_long=True) == {(addr, 0) for addr in es}
 
+  def test_hidden_cruise_buttons_copy_keeps_main_and_drops_the_press(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    CP_SP.flags |= SubaruFlagsSP.HIDE_CRUISE_BUTTONS.value
+    ci, packer = CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
+    frame = [CanData(*packer.make_can_msg("Cruise_Buttons", 0, {"Main": 1, "Set": 1, "Resume": 1}))]
+    ci.update([(0, frame)])
+    ci.update([(0, frame)])
+    copies = []
+    for _ in range(4):
+      _, sends = ci.apply(structs.CarControl(enabled=True).as_reader(), structs.CarControlSP(), 0)
+      copies += [dat for addr, dat, bus in sends if (addr, bus) == (0x146, 2)]
+    assert len(copies) == 2
+    for dat in copies:
+      assert (dat[5] >> 2) & 1 == 1   # Main, bit 42
+      assert (dat[5] >> 3) & 3 == 0   # Set and Resume, bits 43 and 44
+
 
 class TestSubaruLongHold(unittest.TestCase):
   def _interface(self, car, alpha_long):

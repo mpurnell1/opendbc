@@ -26,6 +26,7 @@
 #define MSG_SUBARU_Steering_Torque       0x119U
 #define MSG_SUBARU_Wheel_Speeds          0x13aU
 #define MSG_SUBARU_Brake_Pedal           0x139U
+#define MSG_SUBARU_Cruise_Buttons        0x146U
 
 #define MSG_SUBARU_ES_LKAS               0x122U
 #define MSG_SUBARU_ES_Brake              0x220U
@@ -58,6 +59,11 @@
   {MSG_SUBARU_Throttle,          SUBARU_CAM_BUS,  8, .check_relay = true}, \
   {MSG_SUBARU_Brake_Pedal,       SUBARU_CAM_BUS,  8, .check_relay = true}, \
 
+// openpilot's copy of Cruise_Buttons for the camera, SET and RESUME cleared so the camera's own ACC
+// never engages; the entry's relay check is what stops the car's frame reaching the camera
+#define SUBARU_HIDE_CRUISE_BUTTONS_TX_MSGS \
+  {MSG_SUBARU_Cruise_Buttons,    SUBARU_CAM_BUS,  8, .check_relay = true}, \
+
 #define SUBARU_COMMON_LONG_TX_MSGS(alt_bus) \
   {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true}, \
   {MSG_SUBARU_ES_Brake,          alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
@@ -83,6 +89,7 @@
 
 static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
+static bool subaru_hide_cruise_buttons = false;
 
 // Stock AEB while openpilot has longitudinal: the camera's ES_Brake is forwarded and openpilot's
 // refused for as long as the event lasts, as honda does. The camera takes the brake when it asks
@@ -255,6 +262,11 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
     violation |= longitudinal_transmission_rpm_checks(transmission_rpm, SUBARU_LONG_LIMITS);
   }
 
+  // the camera may learn main on or off from openpilot's copy, never a press
+  if (msg->addr == MSG_SUBARU_Cruise_Buttons) {
+    violation |= GET_BIT(msg, 43U) || GET_BIT(msg, 44U);
+  }
+
   if (msg->addr == MSG_SUBARU_ES_UDS_Request) {
     // tester present ('\x02\x3E\x80\x00\x00\x00\x00\x00') is allowed for gen2 longitudinal to keep eyesight disabled
     bool is_tester_present = (GET_BYTES(msg, 0, 4) == 0x00803E02U) && (GET_BYTES(msg, 4, 4) == 0x0U);
@@ -294,6 +306,12 @@ static safety_config subaru_init(uint16_t param) {
     SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
   };
 
+  static const CanMsg SUBARU_LONG_HIDE_CRUISE_BUTTONS_TX_MSGS[] = {
+    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
+    SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
+    SUBARU_HIDE_CRUISE_BUTTONS_TX_MSGS
+  };
+
   static const CanMsg SUBARU_GEN2_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_ALT_BUS, MSG_SUBARU_ES_LKAS)
     SUBARU_COMMON_TX_MSGS(SUBARU_ALT_BUS)
@@ -330,6 +348,8 @@ static safety_config subaru_init(uint16_t param) {
   subaru_brake = 0;
 
   subaru_common_init();
+  const uint16_t SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS = 2;
+  subaru_hide_cruise_buttons = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS);
 
 #ifdef ALLOW_DEBUG
   const uint16_t SUBARU_PARAM_LONGITUDINAL = 2;
@@ -341,7 +361,8 @@ static safety_config subaru_init(uint16_t param) {
     ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_gen2_rx_checks, SUBARU_GEN2_LONG_TX_MSGS) : \
                                 BUILD_SAFETY_CFG(subaru_gen2_rx_checks, SUBARU_GEN2_TX_MSGS);
   } else {
-    ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_TX_MSGS) : \
+    ret = (subaru_longitudinal && subaru_hide_cruise_buttons) ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_HIDE_CRUISE_BUTTONS_TX_MSGS) : \
+          subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_TX_MSGS) : \
           subaru_stop_and_go  ? BUILD_SAFETY_CFG(subaru_rx_checks, subaru_stop_and_go_tx_msgs) : \
                                 BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_TX_MSGS);
   }

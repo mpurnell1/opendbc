@@ -152,6 +152,12 @@ def _initialize_stop_and_go(CP: structs.CarParams, CP_SP: structs.CarParamsSP, p
     if stop_and_go or stop_and_go_manual_parking_brake:
       CP_SP.safetyParam |= SubaruSafetyFlagsSP.STOP_AND_GO
 
+    # Keeps the camera's own ACC out of the loop under openpilot longitudinal: the camera faults itself
+    # about half a second after the car stops following its commands, taking PCB and LDW with it
+    if CP.openpilotLongitudinalControl and int(params_dict.get("SubaruHideCruiseButtons", 0)) == 1:
+      CP_SP.flags |= SubaruFlagsSP.HIDE_CRUISE_BUTTONS.value
+      CP_SP.safetyParam |= SubaruSafetyFlagsSP.HIDE_CRUISE_BUTTONS
+
 
 def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
   if CP.brand == 'toyota':

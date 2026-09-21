@@ -30,6 +30,7 @@ class SnGCarController:
     self.enabled = CP_SP.flags & (SubaruFlagsSP.STOP_AND_GO | SubaruFlagsSP.STOP_AND_GO_MANUAL_PARKING_BRAKE) \
                    and not CP.openpilotLongitudinalControl
     self.manual_parking_brake = CP_SP.flags & SubaruFlagsSP.STOP_AND_GO_MANUAL_PARKING_BRAKE
+    self.hide_cruise_buttons = CP_SP.flags & SubaruFlagsSP.HIDE_CRUISE_BUTTONS
 
     self.last_standstill_frame = 0
     self.epb_resume_frames_remaining = -1
@@ -97,6 +98,9 @@ class SnGCarController:
   def create_stop_and_go(self, packer, CC: structs.CarControl, CS: CarStateBase, frame: int) -> list[CanData]:
     can_sends = []
 
+    if self.hide_cruise_buttons and frame % 2 == 0:
+      can_sends.append(subarucan_ext.create_cruise_buttons(packer, frame // 2, CS.cruise_buttons_msg))
+
     if not self.enabled:
       return can_sends
 
@@ -117,11 +121,13 @@ class SnGCarState:
 
     self.brake_pedal_msg: dict[str, float] = {}
     self.throttle_msg: dict[str, float] = {}
+    self.cruise_buttons_msg: dict[str, float] = {}
 
   def update(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
     cp = can_parsers[Bus.pt]
 
     self.brake_pedal_msg = copy.copy(cp.vl["Brake_Pedal"])
+    self.cruise_buttons_msg = copy.copy(cp.vl["Cruise_Buttons"])
 
     if not self.CP.flags & SubaruFlags.HYBRID:
       self.throttle_msg = copy.copy(cp.vl["Throttle"])

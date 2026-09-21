@@ -30,6 +30,7 @@ class SubaruMsg(enum.IntEnum):
   ES_UDS_Request    = 0x787
   ES_HighBeamAssist = 0x22A
   ES_STATIC_1       = 0x325
+  Cruise_Buttons    = 0x146
   ES_STATIC_2       = 0x121
 
 
@@ -318,6 +319,33 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
   RELAY_MALFUNCTION_ADDRS = {SUBARU_MAIN_BUS: (SubaruMsg.ES_LKAS, SubaruMsg.ES_DashStatus, SubaruMsg.ES_LKAS_State,
                                                SubaruMsg.ES_Infotainment, SubaruMsg.ES_Brake, SubaruMsg.ES_Status,
                                                SubaruMsg.ES_Distance)}
+
+
+class TestSubaruGen1LongitudinalHiddenButtonsSafety(TestSubaruGen1LongitudinalSafety):
+  """Gen1 long with the camera kept out of ACC: the car's Cruise_Buttons never reach the camera, and
+  openpilot's copy for it may carry main but never a press."""
+  SAFETY_PARAM_SP = 2  # SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS
+  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS) + [[SubaruMsg.Cruise_Buttons, SUBARU_CAM_BUS]]
+  FWD_BLACKLISTED_ADDRS = {2: TestSubaruLongitudinalSafetyBase.FWD_BLACKLISTED_ADDRS[2], 0: [SubaruMsg.Cruise_Buttons]}
+  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1LongitudinalSafety.RELAY_MALFUNCTION_ADDRS, SUBARU_CAM_BUS: (SubaruMsg.Cruise_Buttons,)}
+
+  def setUp(self):
+    self.safety = libsafety_py.libsafety
+    self.safety.set_current_safety_param_sp(self.SAFETY_PARAM_SP)
+    super().setUp()
+
+  def tearDown(self):
+    self.safety.set_current_safety_param_sp(0)
+
+  def _cam_buttons_msg(self, main, set_, resume):
+    values = {"Main": main, "Set": set_, "Resume": resume}
+    return self.packer.make_can_msg_safety("Cruise_Buttons", SUBARU_CAM_BUS, values)
+
+  def test_cruise_buttons_copy_carries_no_press(self):
+    for main in (0, 1):
+      self.assertTrue(self._tx(self._cam_buttons_msg(main, 0, 0)))
+      self.assertFalse(self._tx(self._cam_buttons_msg(main, 1, 0)))
+      self.assertFalse(self._tx(self._cam_buttons_msg(main, 0, 1)))
 
 
 class TestSubaruGen2LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruGen2TorqueSafetyBase):

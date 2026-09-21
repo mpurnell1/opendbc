@@ -66,3 +66,20 @@ def create_brake_pedal(packer, CP, brake_pedal_msg, send_resume):
     values["Speed"] = 1 if CP.flags & SubaruFlags.PREGLOBAL else 3
 
   return packer.make_can_msg("Brake_Pedal", CanBus.camera, values)
+
+
+def create_cruise_buttons(packer, frame, cruise_buttons_msg):
+  values = {s: cruise_buttons_msg[s] for s in [
+    "CHECKSUM",
+    "Signal1",
+    "Main",
+    "Set",
+    "Resume",
+    "Signal2",
+  ]}
+
+  values["COUNTER"] = frame % 0x10
+  values["Set"] = 0
+  values["Resume"] = 0
+
+  return packer.make_can_msg("Cruise_Buttons", CanBus.camera, values)
