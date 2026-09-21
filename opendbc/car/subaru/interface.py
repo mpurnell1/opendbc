@@ -122,7 +122,7 @@ class CarInterface(CarInterfaceBase):
     return ret
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
+  def get_pid_accel_limits(CP, CP_SP, current_speed, cruise_speed):
     # Flat per-car bounds, as gm and toyota do. Tapering toward the set speed is a ford-specific
     # workaround for a PCM that refuses to accelerate there, and only clamps real acceleration
     # here.

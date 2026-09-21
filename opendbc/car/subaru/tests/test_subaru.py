@@ -7,7 +7,7 @@ from opendbc.car.car_helpers import interfaces
 from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car import structs
-from opendbc.car.subaru.values import DBC, LONG_TUNE, SubaruFlags, long_tune
+from opendbc.car.subaru.values import DBC, LONG_TUNE, CarControllerParams, SubaruFlags, long_tune
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP
 import numpy as np
 
@@ -187,6 +187,13 @@ class TestSubaruLongHold(unittest.TestCase):
       assert forester[key] == crosstrek[key], key
     assert long_tune("SUBARU_IMPREZA") == crosstrek
     assert long_tune("SUBARU_ASCENT") == crosstrek
+
+  def test_pid_accel_limits_take_controlsd_arguments(self):
+    # controlsd calls get_pid_accel_limits(CP, CP_SP, v_ego, v_cruise); a commaai-shaped signature
+    # crashes it on every frame and the car loses every ES message
+    for car in LONG_TUNE:
+      ci = self._interface(car, True)
+      assert ci.get_pid_accel_limits(ci.CP, ci.CP_SP, 10.0, 20.0) == (CarControllerParams.ACCEL_MIN, long_tune(car)["ACCEL_MAX"]), car
 
   def test_zero_accel_commands_the_hold_point(self):
     v_ego = 25.0
