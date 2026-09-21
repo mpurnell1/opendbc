@@ -124,25 +124,31 @@ class TestSubaruStockAeb(unittest.TestCase):
     cs, _ = ci.update([(0, frames)])
     ci.CS.out.vEgo = 25.0
     CC = structs.CarControl(enabled=True, longActive=True).as_reader()
-    thr = dash_pcb_off = None
+    thr = brake_active = dash_pcb_off = None
     for _ in range(10):
       _, sends = ci.apply(CC, structs.CarControlSP(), 0)
       for addr, dat, _ in sends:
         if addr == 0x221:
           thr = int.from_bytes(dat[2:4], "little") & 0x1FFF
+          brake_active = (dat[4] >> 4) & 1
         if addr == 0x321:
           dash_pcb_off = (dat[1] >> 4) & 1
-    return cs.stockAeb, thr, dash_pcb_off
+    return cs.stockAeb, thr, brake_active, dash_pcb_off
 
   def test_stock_aeb_stops_the_drive_and_keeps_the_dash_honest(self):
+    """The controller's latch follows the panda's: the camera claiming AEB with pressure takes the
+    drive away until its event has ended and it asks no more brake than openpilot does."""
     ci, packer = self._interface()
     self._drive(ci, packer, 0, 0, 0)  # the parser drops the first frame after construction
     hold = int(round(np.interp(25.0, long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_BP"], long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_V"])))
-    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0)
+    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
+    assert self._drive(ci, packer, 8, 0, 0) == (False, hold, 0, 0)
     for aeb_status in (8, 4, 12):
-      assert self._drive(ci, packer, aeb_status, 300, 0) == (True, 808, 0), aeb_status
-    assert self._drive(ci, packer, 8, 0, 1) == (False, hold, 1)
-    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0)
+      assert self._drive(ci, packer, aeb_status, 300, 0) == (True, 808, 1, 0), aeb_status
+      assert self._drive(ci, packer, 0, 150, 0) == (False, 808, 1, 0), aeb_status
+      assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), aeb_status
+    assert self._drive(ci, packer, 8, 300, 1) == (True, 808, 1, 1)
+    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
 
 
 class TestSubaruLongHold(unittest.TestCase):

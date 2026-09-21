@@ -85,8 +85,9 @@ static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
 
 // Stock AEB while openpilot has longitudinal: the camera's ES_Brake is forwarded and openpilot's
-// refused for as long as the event lasts, as honda does. Latched on the camera asking for at least
-// what openpilot is, so a weaker stock request never replaces a stronger one of ours.
+// refused for as long as the event lasts, as honda does. The camera takes the brake when it asks
+// for at least what openpilot is, and keeps it until its event has ended and it asks no more, so
+// the stronger request reaches the brake module at both edges and the writer never chatters between.
 static bool subaru_stock_aeb = false;
 static int subaru_brake = 0;
 
@@ -149,14 +150,12 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
 
   // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none
   if ((msg->addr == MSG_SUBARU_ES_Brake) && (msg->bus == SUBARU_CAM_BUS)) {
-    int aeb_status = msg->data[4] & 0xFU;
+    bool aeb_event = (msg->data[4] & 0xFU) != 0U;
     int stock_brake = GET_BYTES(msg, 2, 2);
-    if (aeb_status == 0) {
-      subaru_stock_aeb = false;
-    } else if (stock_brake >= subaru_brake) {
-      subaru_stock_aeb = true;
+    if (subaru_stock_aeb) {
+      subaru_stock_aeb = aeb_event || (stock_brake > subaru_brake);
     } else {
-      // openpilot is braking harder: keep its frame until the camera asks for more or stops
+      subaru_stock_aeb = aeb_event && (stock_brake > 0) && (stock_brake >= subaru_brake);
     }
   }
 
@@ -228,7 +227,8 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
     int es_brake_pressure = GET_BYTES(msg, 2, 2);
     subaru_brake = es_brake_pressure;
     violation |= longitudinal_brake_checks(es_brake_pressure, SUBARU_LONG_LIMITS);
-    // the camera's frame is on the bus instead
+    // only the camera claims AEB, and while it does its frame is on the bus instead
+    violation |= (msg->data[4] & 0xFU) != 0U;
     violation |= subaru_stock_aeb;
   }
 

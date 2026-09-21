@@ -158,7 +158,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       # TODO: Hybrid cars don't have ES_Distance, need a replacement
       if not (self.CP.flags & SubaruFlags.HYBRID):
         # AEB_Status 8 is actuation, 4 and 12 its related states; the panda forwards the camera's
-        # frame on any of them with pressure, so the controller follows the same rule
+        # frame on any of them with pressure
         ret.stockAeb = (cp_es_distance.vl["ES_Brake"]["AEB_Status"] != 0) and \
                        (cp_es_distance.vl["ES_Brake"]["Brake_Pressure"] != 0)
 
