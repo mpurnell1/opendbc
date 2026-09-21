@@ -8,6 +8,7 @@ from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEE
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car import structs
 from opendbc.car.subaru.values import DBC, LONG_TUNE, SubaruFlags, long_tune
+from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP
 import numpy as np
 
 
@@ -149,6 +150,25 @@ class TestSubaruStockAeb(unittest.TestCase):
       assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), aeb_status
     assert self._drive(ci, packer, 8, 300, 1) == (True, 808, 1, 1)
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
+
+
+class TestSubaruStopAndGoUnderLong(unittest.TestCase):
+  def _sends(self, alpha_long):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=alpha_long, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
+    CP_SP.flags |= SubaruFlagsSP.STOP_AND_GO.value
+    ci = CarInterface(CP, CP_SP)
+    ci.update([(0, [])])
+    _, sends = ci.apply(structs.CarControl(enabled=True).as_reader(), structs.CarControlSP(), 0)
+    return {(addr, bus) for addr, _, bus in sends}
+
+  def test_pedal_spoofs_only_under_stock_long(self):
+    assert (0x40, 2) in self._sends(alpha_long=False)
+    es = {0x122, 0x321, 0x322, 0x222, 0x220, 0x221}
+    assert self._sends(alpha_long=True) == {(addr, 0) for addr in es}
 
 
 class TestSubaruLongHold(unittest.TestCase):

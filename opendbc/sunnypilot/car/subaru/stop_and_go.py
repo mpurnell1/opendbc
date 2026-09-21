@@ -25,7 +25,10 @@ class SnGCarController:
   def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP):
     self.CP = CP
     self.CP_SP = CP_SP
-    self.enabled = CP_SP.flags & (SubaruFlagsSP.STOP_AND_GO | SubaruFlagsSP.STOP_AND_GO_MANUAL_PARKING_BRAKE)
+    # The pedal spoofs wake stock ACC from its standstill hold; under openpilot longitudinal the
+    # stop and the pull-away are openpilot's own, and the safety model refuses them anyway.
+    self.enabled = CP_SP.flags & (SubaruFlagsSP.STOP_AND_GO | SubaruFlagsSP.STOP_AND_GO_MANUAL_PARKING_BRAKE) \
+                   and not CP.openpilotLongitudinalControl
     self.manual_parking_brake = CP_SP.flags & SubaruFlagsSP.STOP_AND_GO_MANUAL_PARKING_BRAKE
 
     self.last_standstill_frame = 0
