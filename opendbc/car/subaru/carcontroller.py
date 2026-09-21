@@ -184,6 +184,13 @@ class CarController(CarControllerBase, SnGCarController):
       cruise_throttle = np.clip(apply_throttle, CarControllerParams.THROTTLE_MIN, thr_ceiling)
       cruise_rpm = np.clip(apply_rpm, CarControllerParams.RPM_MIN, CarControllerParams.RPM_MAX)
       cruise_brake = np.clip(apply_brake, CarControllerParams.BRAKE_MIN, CarControllerParams.BRAKE_MAX)
+
+      # The camera's AEB has the brake channel (the panda forwards its ES_Brake and refuses ours,
+      # and any throttle above inactive), so command no drive against it.
+      if CS.out.stockAeb:
+        cruise_throttle = CarControllerParams.THROTTLE_MIN
+        cruise_rpm = CarControllerParams.RPM_MIN
+        self.rpm_last = None
     else:
       self.accel_last = 0.0
       self.braking = False
