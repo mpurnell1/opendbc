@@ -365,10 +365,23 @@ class CAR(Platforms):
     flags=SubaruFlags.LKAS_ANGLE,
   )
 
+# Hold pair measured on a 2021 Forester from stock EyeSight's own Cruise_Throttle and Cruise_RPM at
+# steady speed: zero-pitch intercept per 1 m/s bin over 1.01M frames, two devices agreeing within
+# 50 counts. Below 8 m/s EyeSight never holds (no ACC under 20 mph), so the stock inactive values
+# stay; 38 m/s is the top of the corpus and 3216 the top of what EyeSight commands. The two tables
+# are fitted from the same frames and are swapped together, as the coupling note above requires. Everything else is inherited from the Crosstrek until measured.
+_FORESTER_LONG: dict = {
+  **_CROSSTREK_LONG,
+  "THROTTLE_HOLD_BP": [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0],
+  "THROTTLE_HOLD_V": [1818, 1876, 1958, 1980, 2119, 2157, 2267, 2467, 2608, 2636, 2701, 2765, 2883, 2999, 3142, 3203, 3216],
+  "RPM_HOLD_BP": [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0],
+  "RPM_HOLD_V": [600, 1066, 1095, 1116, 1152, 1169, 1193, 1264, 1334, 1456, 1611, 1677, 1788, 1982, 2156, 2326, 2452],
+}
+
 LONG_TUNE: dict = {
   CAR.SUBARU_IMPREZA_2020: dict(_CROSSTREK_LONG),   # measured, 2021 Crosstrek Sport
   CAR.SUBARU_IMPREZA:      dict(_CROSSTREK_LONG),   # UNMEASURED - inherited
-  CAR.SUBARU_FORESTER:     dict(_CROSSTREK_LONG),   # UNMEASURED - inherited
+  CAR.SUBARU_FORESTER:     dict(_FORESTER_LONG),    # hold pair measured, 2021 Forester; the rest inherited
   CAR.SUBARU_ASCENT:       dict(_CROSSTREK_LONG),   # UNMEASURED - inherited
 }
 
