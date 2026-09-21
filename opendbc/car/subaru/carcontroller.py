@@ -8,6 +8,7 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
 from opendbc.car.subaru.values import DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 
+from opendbc.sunnypilot.car.subaru.camera_copies import CameraCopiesController
 from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
 
 # FIXME: These limits aren't exact. The real limit is more than likely over a larger time period and
@@ -30,10 +31,11 @@ ACCEL_RATE_LIMIT = 4.0 * DT_CTRL  # m/s^2 per frame
 LEAD_HOLD_FRAMES = int(1.0 / DT_CTRL)
 
 
-class CarController(CarControllerBase, SnGCarController):
+class CarController(CarControllerBase, SnGCarController, CameraCopiesController):
   def __init__(self, dbc_names, CP, CP_SP):
     CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
     SnGCarController.__init__(self, CP, CP_SP)
+    CameraCopiesController.__init__(self, CP, CP_SP)
     self.apply_torque_last = 0
 
     self.cruise_button_prev = 0
@@ -286,6 +288,7 @@ class CarController(CarControllerBase, SnGCarController):
           can_sends.append(subarucan.create_es_static_2(self.packer))
 
     can_sends.extend(SnGCarController.create_stop_and_go(self, self.packer, CC, CS, self.frame))
+    can_sends.extend(CameraCopiesController.create_camera_copies(self, self.packer, CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.p.STEER_MAX
