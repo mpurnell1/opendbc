@@ -194,7 +194,6 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
   if long_enabled:
     values["Car_Follow"] = int(lead_visible)
 
-    values["PCB_Off"] = 1 # AEB is not preserved, so show the PCB_Off on dash
     values["LDW_Off"] = 0
     values["Cruise_Fault"] = 0
 

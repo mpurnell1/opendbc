@@ -216,6 +216,13 @@ class TestSubaruLongitudinalSafetyBase(TestSubaruSafetyBase, common.Longitudinal
     values = {"Cruise_RPM": rpm}
     return self.packer.make_can_msg_safety("ES_Status", self.ALT_MAIN_BUS, values)
 
+  def _cam_brake_msg(self, aeb_status, brake):
+    # its own packer: the camera's counter sequence is independent of openpilot's ES_Brake
+    if not hasattr(self, "cam_packer"):
+      self.cam_packer = CANPackerSafety("subaru_global_2017_generated")
+    values = {"AEB_Status": aeb_status, "Brake_Pressure": brake}
+    return self.cam_packer.make_can_msg_safety("ES_Brake", SUBARU_CAM_BUS, values)
+
 
 class TestSubaruTorqueSafetyBase(TestSubaruSafetyBase, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):
   MAX_RATE_UP = 50
@@ -254,6 +261,41 @@ class TestSubaruGen2TorqueStockLongitudinalSafety(TestSubaruStockLongitudinalSaf
 class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruTorqueSafetyBase):
   FLAGS = SubaruSafetyFlags.LONG
   TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS)
+
+  def _cam_brake_forwarded(self):
+    return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Brake) == SUBARU_MAIN_BUS
+
+  def test_stock_aeb_passthrough(self):
+    """While the camera's AEB actuates and asks for at least openpilot's brake, its ES_Brake is
+    forwarded, openpilot's is refused and so is any throttle above inactive, until the event ends."""
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    self.assertTrue(self._rx(self._cam_brake_msg(0, 0)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    # a weaker stock request never replaces a stronger one of ours
+    self.assertTrue(self._rx(self._cam_brake_msg(8, 50)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    for aeb_status in (8, 4, 12):
+      with self.subTest(aeb_status=aeb_status):
+        self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 300)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+        self.assertFalse(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
+        self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS)))
+        self.assertTrue(self._tx(self._send_gas_msg(self.MIN_GAS)))
+        # latched: the camera easing off mid-event does not hand the brake back
+        self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 10)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 0)))
+        self.assertFalse(self._cam_brake_forwarded())
+        self.assertTrue(self._tx(self._send_brake_msg(100)))
+        self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
   RELAY_MALFUNCTION_ADDRS = {SUBARU_MAIN_BUS: (SubaruMsg.ES_LKAS, SubaruMsg.ES_DashStatus, SubaruMsg.ES_LKAS_State,
                                                SubaruMsg.ES_Infotainment, SubaruMsg.ES_Brake, SubaruMsg.ES_Status,
                                                SubaruMsg.ES_Distance)}

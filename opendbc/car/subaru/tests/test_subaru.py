@@ -109,6 +109,42 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     assert not self._step(ci, packer, 0, warning=0)
 
 
+class TestSubaruStockAeb(unittest.TestCase):
+  def _interface(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
+
+  def _drive(self, ci, packer, aeb_status, pressure, pcb_off):
+    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"AEB_Status": aeb_status, "Brake_Pressure": pressure})),
+              CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off}))]
+    cs, _ = ci.update([(0, frames)])
+    ci.CS.out.vEgo = 25.0
+    CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+    thr = dash_pcb_off = None
+    for _ in range(10):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      for addr, dat, _ in sends:
+        if addr == 0x221:
+          thr = int.from_bytes(dat[2:4], "little") & 0x1FFF
+        if addr == 0x321:
+          dash_pcb_off = (dat[1] >> 4) & 1
+    return cs.stockAeb, thr, dash_pcb_off
+
+  def test_stock_aeb_stops_the_drive_and_keeps_the_dash_honest(self):
+    ci, packer = self._interface()
+    self._drive(ci, packer, 0, 0, 0)  # the parser drops the first frame after construction
+    hold = int(round(np.interp(25.0, long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_BP"], long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_V"])))
+    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0)
+    for aeb_status in (8, 4, 12):
+      assert self._drive(ci, packer, aeb_status, 300, 0) == (True, 808, 0), aeb_status
+    assert self._drive(ci, packer, 8, 0, 1) == (False, hold, 1)
+    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0)
+
+
 class TestSubaruLongHold(unittest.TestCase):
   def _interface(self, car, alpha_long):
     CarInterface = interfaces[car]
