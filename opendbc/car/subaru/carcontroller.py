@@ -44,6 +44,8 @@ class CarController(CarControllerBase, SnGCarController):
 
     self.accel_last = 0.0
     self.rpm_last = None
+    self.brake_last = 0
+    self.stock_aeb = False
     self.lead_hold = 0
     self.braking = False
     self.decel_req = False
@@ -101,6 +103,16 @@ class CarController(CarControllerBase, SnGCarController):
       self.apply_torque_last = apply_torque
 
     # *** longitudinal ***
+
+    # Mirror of the panda's stock AEB latch (safety/modes/subaru.h): while it is set the panda forwards
+    # the camera's ES_Brake and refuses ours and any throttle above inactive, so the two must agree.
+    if self.CP.openpilotLongitudinalControl:
+      cam_aeb = CS.es_brake_msg["AEB_Status"] != 0
+      cam_brake = CS.es_brake_msg["Brake_Pressure"]
+      if self.stock_aeb:
+        self.stock_aeb = cam_aeb or cam_brake > self.brake_last
+      else:
+        self.stock_aeb = cam_aeb and cam_brake > 0 and cam_brake >= self.brake_last
 
     if CC.longActive:
       # The stock lookup has no speed term, so zero requested accel always commands
@@ -185,9 +197,8 @@ class CarController(CarControllerBase, SnGCarController):
       cruise_rpm = np.clip(apply_rpm, CarControllerParams.RPM_MIN, CarControllerParams.RPM_MAX)
       cruise_brake = np.clip(apply_brake, CarControllerParams.BRAKE_MIN, CarControllerParams.BRAKE_MAX)
 
-      # The camera's AEB has the brake channel (the panda forwards its ES_Brake and refuses ours,
-      # and any throttle above inactive), so command no drive against it.
-      if CS.out.stockAeb:
+      # no drive against the camera's brake
+      if self.stock_aeb:
         cruise_throttle = CarControllerParams.THROTTLE_MIN
         cruise_rpm = CarControllerParams.RPM_MIN
         self.rpm_last = None
@@ -249,9 +260,11 @@ class CarController(CarControllerBase, SnGCarController):
 
           can_sends.append(subarucan.create_es_brake(self.packer, self.frame // 5, CS.es_brake_msg, bus,
                                                      self.CP.openpilotLongitudinalControl, CC.longActive, cruise_brake))
+          self.brake_last = cruise_brake
 
           can_sends.append(subarucan.create_es_distance(self.packer, self.frame // 5, CS.es_distance_msg, bus, pcm_cancel_cmd,
-                                                        self.CP.openpilotLongitudinalControl, cruise_brake > 0, cruise_throttle))
+                                                        self.CP.openpilotLongitudinalControl, cruise_brake > 0 or self.stock_aeb,
+                                                        cruise_throttle))
       else:
         if pcm_cancel_cmd:
           if not (self.CP.flags & SubaruFlags.HYBRID):
