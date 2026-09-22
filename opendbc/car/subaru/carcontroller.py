@@ -132,7 +132,7 @@ class CarController(CarControllerBase):
       apply_throttle = int(round(thr_raw))
       # The CVT ratio request carries real torque authority, so it gets the same treatment as the
       # throttle: an asymmetric gain and a slew limit, both bounded by what stock respects.
-      rpm_gain = self.p.RPM_GAIN_UP if accel_ff >= 0.0 else self.p.RPM_GAIN_DOWN
+      rpm_gain = float(np.interp(v_ego_ff, self.p.RPM_GAIN_UP_BP, self.p.RPM_GAIN_UP_V)) if accel_ff >= 0.0 else self.p.RPM_GAIN_DOWN
       rpm_raw = rpm_hold + accel_ff * rpm_gain
       if self.rpm_last is None:
         self.rpm_last = rpm_hold
