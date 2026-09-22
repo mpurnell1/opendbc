@@ -124,7 +124,11 @@ static bool subaru_seen_brake_pedal(bool pressed) {
 // refused for as long as the event lasts, as honda does. The camera takes the brake when it asks
 // for at least what openpilot is, and keeps it until its event has ended and it asks no more, so
 // the stronger request reaches the brake module at both edges and the writer never chatters between.
+// An event is its AEB_Status or its collision warning: in all six warning events in 78 h of logs the
+// camera put 50 to 100 counts on the wire, and the brake module acted on them, with AEB_Status still
+// 0. Its ordinary ACC braking carries no warning, so this does not hand that over.
 static bool subaru_stock_aeb = false;
+static bool subaru_collision_warning = false;
 static int subaru_brake = 0;
 
 static uint32_t subaru_get_checksum(const CANPacket_t *msg) {
@@ -159,6 +163,12 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
     if ((lkas_hud >= 1) && (lkas_hud <= 3)) {
       mads_button_press = MADS_BUTTON_PRESSED;
     }
+
+    // LKAS_Alert is bits 32-36: 1 and 2 are the forward collision beeps, 5 pre-collision activated;
+    // LKAS_Alert_Msg is bits 12-14, 6 being pre-collision braking
+    int lkas_alert = msg->data[4] & 0x1FU;
+    int lkas_alert_msg = (msg->data[1] >> 4) & 0x7U;
+    subaru_collision_warning = (lkas_alert == 1) || (lkas_alert == 2) || (lkas_alert == 5) || (lkas_alert_msg == 6);
   }
 
   // enter controls on rising edge of ACC, exit controls on ACC off
@@ -188,7 +198,7 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
 
   // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none
   if ((msg->addr == MSG_SUBARU_ES_Brake) && (msg->bus == SUBARU_CAM_BUS)) {
-    bool aeb_event = (msg->data[4] & 0xFU) != 0U;
+    bool aeb_event = ((msg->data[4] & 0xFU) != 0U) || subaru_collision_warning;
     int stock_brake = GET_BYTES(msg, 2, 2);
     if (subaru_stock_aeb) {
       subaru_stock_aeb = aeb_event || (stock_brake > subaru_brake);
@@ -383,6 +393,7 @@ static safety_config subaru_init(uint16_t param) {
 
   subaru_gen2 = GET_FLAG(param, SUBARU_PARAM_GEN2);
   subaru_stock_aeb = false;
+  subaru_collision_warning = false;
   subaru_brake = 0;
 
   subaru_common_init();
