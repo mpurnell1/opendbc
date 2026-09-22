@@ -193,7 +193,7 @@ class TestSubaruCameraCopies(unittest.TestCase):
     CP_SP.flags |= SubaruFlagsSP.CAMERA_ECHO.value
     return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
 
-  def _copies(self, ci, frames, addr, n, accel=0.0, v_ego=10.0):
+  def _copies(self, ci, frames, addr, n, accel=0.0, v_ego=10.0, brake_last=None, throttle_last=None):
     CC = structs.CarControl(enabled=True, longActive=True)
     CC.actuators.accel = accel
     CC = CC.as_reader()
@@ -204,6 +204,10 @@ class TestSubaruCameraCopies(unittest.TestCase):
       ci.update([(0, frames)])
       ci.CS.out.vEgo = v_ego
       ci.CS.out.standstill = v_ego == 0.0
+      if brake_last is not None:
+        ci.CC.brake_last = brake_last
+      if throttle_last is not None:
+        ci.CC.throttle_last = throttle_last
       _, sends = ci.apply(CC, structs.CarControlSP(), 0)
       out += [dat for a, dat, bus in sends if (a, bus) == (addr, 2)]
     return out
@@ -232,15 +236,35 @@ class TestSubaruCameraCopies(unittest.TestCase):
         assert d[6] == (expected if pedal == 0 else 77), (cam_throttle, pedal)
         assert int.from_bytes(d[2:4], "little") & 0x1FFF == 1500
 
-  def test_pulling_away_under_the_camera_hold_taps_the_gas_once(self):
+  def _tap(self, ci, packer, brake_last, throttle_last, v_ego=0.0, cam_brake=1, driver_pedal=0):
+    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Cruise_Brake_Active": cam_brake, "Brake_Pressure": 297 * cam_brake})),
+              CanData(*packer.make_can_msg("Throttle", 0, {"Throttle_Pedal": driver_pedal}))]
+    ci.update([(0, frames)])
+    ci.update([(0, frames)])
+    ci.CS.out.vEgo = v_ego
+    ci.CS.out.standstill = v_ego == 0.0
+    ci.CC.brake_last, ci.CC.throttle_last = brake_last, throttle_last
+    CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+    out = []
+    for frame in range(4):
+      out += [(dat[4], dat[6]) for addr, dat, bus in ci.CC.create_camera_copies(ci.CC.packer, CC, ci.CS, frame)
+              if (addr, bus) == (0x40, 2)]
+    return out
+
+  def test_the_gas_tap_waits_until_openpilot_is_really_leaving(self):
     ci, packer = self._interface()
-    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Cruise_Brake_Active": 1, "Brake_Pressure": 297})),
-              CanData(*packer.make_can_msg("Throttle", 0, {"Throttle_Pedal": 0}))]
-    pedals = [d[4] for d in self._copies(ci, frames, 0x40, 40, accel=0.8, v_ego=0.0)]
-    assert pedals == [5] * 15 + [0] * 25
-    # and not while the camera is not holding, or the car is moving
-    frames_moving = frames
-    assert all(p == 0 for p in [d[4] for d in self._copies(ci, frames_moving, 0x40, 5, accel=0.8, v_ego=3.0)])
+    # openpilot still on its own brake, or not yet asking for throttle: nothing to back a tap up
+    assert all(p == (0, 0) for p in self._tap(ci, packer, brake_last=130, throttle_last=2000))
+    assert all(p == (0, 0) for p in self._tap(ci, packer, brake_last=0, throttle_last=1818))
+    # brake released and real throttle commanded: pedal and combined throttle go out together
+    assert all(p == (5, 5) for p in self._tap(ci, packer, brake_last=0, throttle_last=2000))
+    # not once the car is moving, and not when the camera is not holding
+    assert all(p == (0, 0) for p in self._tap(ci, packer, brake_last=0, throttle_last=2000, v_ego=1.0))
+    assert all(p == (0, 0) for p in self._tap(ci, packer, brake_last=0, throttle_last=2000, cam_brake=0))
+
+  def test_the_drivers_own_pedal_always_wins(self):
+    ci, packer = self._interface()
+    assert all(p[0] == 17 for p in self._tap(ci, packer, brake_last=0, throttle_last=2000, driver_pedal=17))
 
 
 class TestSubaruDisengageBeep(unittest.TestCase):
