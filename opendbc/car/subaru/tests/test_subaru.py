@@ -239,11 +239,15 @@ class TestSubaruLongHold(unittest.TestCase):
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
     return CarInterface(CP, CP_SP)
 
-  def test_forester_has_its_own_hold_pair(self):
+  FORESTER_MEASURED = {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V",
+                       "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_DECEL_GAIN",
+                       "RPM_GAIN_UP_BP", "RPM_GAIN_UP_V", "RPM_GAIN_DOWN"}
+
+  def test_forester_has_its_own_measured_tables(self):
     forester, crosstrek = long_tune("SUBARU_FORESTER"), long_tune("SUBARU_IMPREZA_2020")
-    for key in ("THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V"):
+    for key in self.FORESTER_MEASURED:
       assert forester[key] != crosstrek[key], key
-    for key in set(crosstrek) - {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V"}:
+    for key in set(crosstrek) - self.FORESTER_MEASURED:
       assert forester[key] == crosstrek[key], key
     assert long_tune("SUBARU_IMPREZA") == crosstrek
     assert long_tune("SUBARU_ASCENT") == crosstrek

@@ -91,7 +91,8 @@ _CROSSTREK_LONG: dict = {
   "RPM_HOLD_V": [600,  600,  901, 1486, 2020, 2034, 2034, 2034, 2034, 2198, 2198],
   # Asymmetric: the car needs more ratio to accelerate than to give back. Scored sample by sample
   # against stock's own command, and corroborated by stock's median margin over hold per accel bin.
-  "RPM_GAIN_UP": 1500,
+  "RPM_GAIN_UP_BP": [0.0],  # m/s
+  "RPM_GAIN_UP_V": [1500],
   "RPM_GAIN_DOWN": 700,
   # The DOWN limit stops the ratio request collapsing in a step; stock respects it 99% of the time
   # and never exceeds it while decelerating hard, so it cannot blunt a real deceleration. The UP
@@ -365,17 +366,27 @@ class CAR(Platforms):
     flags=SubaruFlags.LKAS_ANGLE,
   )
 
-# Hold pair measured on a 2021 Forester from stock EyeSight's own Cruise_Throttle and Cruise_RPM at
-# steady speed: zero-pitch intercept per 1 m/s bin over 1.01M frames, two devices agreeing within
-# 50 counts. Below 8 m/s EyeSight never holds (no ACC under 20 mph), so the stock inactive values
-# stay; 38 m/s is the top of the corpus and 3216 the top of what EyeSight commands. The two tables
-# are fitted from the same frames and are swapped together, as the coupling note above requires. Everything else is inherited from the Crosstrek until measured.
+# Measured on a 2021 Forester from stock EyeSight's own Cruise_Throttle and Cruise_RPM. The hold pair
+# is the zero-pitch intercept per 1 m/s bin over 1.01M steady frames, two devices agreeing within
+# 50 counts; below 8 m/s EyeSight never holds (no ACC under 20 mph), so the stock inactive values
+# stay, and 38 m/s is the top of the corpus. The gains are the slope of stock's command above that
+# hold against the pitch-corrected acceleration it achieved 300 ms later, per speed band, from the
+# medians of 0.2 m/s^2 bins over 690k frames (~/projects/docs/subaru-forester-long-gains.md).
+# Stock also steps its throttle by 170-480 counts the moment it starts accelerating, which a pure
+# gain cannot carry, and closes the throttle to 808 outright by -0.5 to -0.9 m/s^2 at every speed,
+# which the decel gain approximates. All four tables come from the same frames; swap them together.
 _FORESTER_LONG: dict = {
   **_CROSSTREK_LONG,
   "THROTTLE_HOLD_BP": [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0],
   "THROTTLE_HOLD_V": [1818, 1876, 1958, 1980, 2119, 2157, 2267, 2467, 2608, 2636, 2701, 2765, 2883, 2999, 3142, 3203, 3216],
   "RPM_HOLD_BP": [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0],
   "RPM_HOLD_V": [600, 1066, 1095, 1116, 1152, 1169, 1193, 1264, 1334, 1456, 1611, 1677, 1788, 1982, 2156, 2326, 2452],
+  "THROTTLE_GAIN_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
+  "THROTTLE_GAIN_V": [480, 615, 600, 895, 650, 780],
+  "THROTTLE_DECEL_GAIN": 2000,
+  "RPM_GAIN_UP_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
+  "RPM_GAIN_UP_V": [210, 330, 450, 650, 1150, 1350],
+  "RPM_GAIN_DOWN": 100,
 }
 
 LONG_TUNE: dict = {
