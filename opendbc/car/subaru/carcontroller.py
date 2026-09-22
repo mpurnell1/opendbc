@@ -243,7 +243,8 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
 
         can_sends.append(subarucan.create_es_lkas_state(self.packer, self.frame // 10, CS.es_lkas_state_msg, CC.enabled, CC.latActive,
                                                         CS.out.cruiseState.available, dash_indicators,
-                                                        CC.longActive, CS.out.standstill, hud_control.visualAlert,
+                                                        self.CP.openpilotLongitudinalControl, CC.longActive,
+                                                        CS.out.standstill, hud_control.visualAlert,
                                                         hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                                         hud_control.leftLaneDepart, hud_control.rightLaneDepart))
 

@@ -68,7 +68,7 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
 
 
 def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, cruise_available, dash_indicators,
-                         long_active, standstill, visual_alert, left_line, right_line,
+                         long_enabled, long_active, standstill, visual_alert, left_line, right_line,
                          left_lane_depart, right_lane_depart):
   values = {s: es_lkas_state_msg[s] for s in [
     "CHECKSUM",
@@ -96,6 +96,13 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
 
   # Filter the stock LKAS sending an audible alert when it turns off LKAS
   if values["LKAS_Alert"] == 27:
+    values["LKAS_Alert"] = 0
+
+  # The camera announces ACC disengaged whenever it sees cruise drop without having asked: it never
+  # sets Cruise_Cancel, it raises Cruise_Soft_Disable and waits for its own ES_Distance to carry the
+  # cancel, and under openpilot longitudinal that message is openpilot's. So every disengagement
+  # beeps, where stock never does (0 of 12 brake-press cancels in the logs).
+  if values["LKAS_Alert"] == 26 and long_enabled:
     values["LKAS_Alert"] = 0
 
   # Filter the stock LKAS sending an audible alert when "Keep hands on wheel" alert is active (2020+ models)
