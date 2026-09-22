@@ -311,7 +311,10 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
     violation |= !subaru_seen_brake_pedal(((msg->data[7] >> 6) & 1U) != 0U);
   }
   if (msg->addr == MSG_SUBARU_Throttle) {
-    bool hold_release_tap = (msg->data[4] == 5U) && controls_allowed && !vehicle_moving;
+    // the tap leaves a standstill, and the car creeps before the wheel speeds read zero-free, so the
+    // exception runs to walking pace: a refused copy is one the camera never gets
+    bool hold_release_tap = (msg->data[4] == 5U) && controls_allowed &&
+                            ((vehicle_speed.max / VEHICLE_SPEED_FACTOR) < 2.0);
     violation |= !(subaru_seen_throttle_pedal(msg->data[4]) || hold_release_tap);
   }
 
