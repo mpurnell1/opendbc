@@ -109,7 +109,8 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     # Mirror of the panda's stock AEB latch (safety/modes/subaru.h): while it is set the panda forwards
     # the camera's ES_Brake and refuses ours and any throttle above inactive, so the two must agree.
     if self.CP.openpilotLongitudinalControl:
-      cam_aeb = CS.es_brake_msg["AEB_Status"] != 0
+      cam_aeb = CS.es_brake_msg["AEB_Status"] != 0 or CS.out.stockFcw or \
+                CS.es_lkas_state_msg["LKAS_Alert"] == 5 or CS.es_lkas_state_msg["LKAS_Alert_Msg"] == 6
       cam_brake = CS.es_brake_msg["Brake_Pressure"]
       if self.stock_aeb:
         self.stock_aeb = cam_aeb or cam_brake > self.brake_last

@@ -119,8 +119,9 @@ class TestSubaruStockAeb(unittest.TestCase):
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
     return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
 
-  def _drive(self, ci, packer, aeb_status, pressure, pcb_off):
+  def _drive(self, ci, packer, aeb_status, pressure, pcb_off, lkas_alert=0):
     frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"AEB_Status": aeb_status, "Brake_Pressure": pressure})),
+              CanData(*packer.make_can_msg("ES_LKAS_State", 2, {"LKAS_Alert": lkas_alert})),
               CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off}))]
     cs, _ = ci.update([(0, frames)])
     ci.CS.out.vEgo = 25.0
@@ -150,6 +151,17 @@ class TestSubaruStockAeb(unittest.TestCase):
       assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), aeb_status
     assert self._drive(ci, packer, 8, 300, 1) == (True, 808, 1, 1)
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
+
+  def test_the_collision_warning_takes_the_drive_away_too(self):
+    # the camera brakes during its warning stage with AEB_Status still 0, and the panda forwards it
+    ci, packer = self._interface()
+    self._drive(ci, packer, 0, 0, 0)
+    hold = int(round(np.interp(25.0, long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_BP"], long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_V"])))
+    for alert in (1, 2):
+      assert self._drive(ci, packer, 0, 100, 0, lkas_alert=alert)[1:] == (808, 1, 0), alert
+      assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), alert
+    # the camera's own ACC braking is not one
+    assert self._drive(ci, packer, 0, 346, 0)[1:] == (hold, 0, 0)
 
 
 class TestSubaruStopAndGoUnderLong(unittest.TestCase):
