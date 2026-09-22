@@ -263,7 +263,7 @@ class TestSubaruLongHold(unittest.TestCase):
 
   FORESTER_MEASURED = {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V",
                        "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_DECEL_GAIN",
-                       "RPM_GAIN_UP_BP", "RPM_GAIN_UP_V", "RPM_GAIN_DOWN"}
+                       "RPM_GAIN_UP_BP", "RPM_GAIN_UP_V", "RPM_GAIN_DOWN", "THR_DECEL_V"}
 
   def test_forester_has_its_own_measured_tables(self):
     forester, crosstrek = long_tune("SUBARU_FORESTER"), long_tune("SUBARU_IMPREZA_2020")
