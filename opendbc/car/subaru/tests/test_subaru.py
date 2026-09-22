@@ -231,6 +231,28 @@ class TestSubaruCameraCopies(unittest.TestCase):
     assert all(p == 0 for p in [d[4] for d in self._copies(ci, frames_moving, 0x40, 5, accel=0.8, v_ego=3.0)])
 
 
+class TestSubaruDisengageBeep(unittest.TestCase):
+  def _alert(self, alpha_long):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=alpha_long, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=alpha_long, is_release_sp=False, docs=False)
+    ci, packer = CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
+    frames = [CanData(*packer.make_can_msg("ES_LKAS_State", 2, {"LKAS_Alert": 26}))]
+    ci.update([(0, frames)])
+    out = []
+    for _ in range(20):
+      ci.update([(0, frames)])
+      _, sends = ci.apply(structs.CarControl(enabled=False).as_reader(), structs.CarControlSP(), 0)
+      out += [dat[4] & 0x1F for addr, dat, bus in sends if (addr, bus) == (0x322, 0)]
+    return out
+
+  def test_acc_disengaged_beep_is_filtered_only_under_openpilot_long(self):
+    assert set(self._alert(alpha_long=False)) == {26}
+    assert set(self._alert(alpha_long=True)) == {0}
+
+
 class TestSubaruLongHold(unittest.TestCase):
   def _interface(self, car, alpha_long):
     CarInterface = interfaces[car]
