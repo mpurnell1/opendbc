@@ -30,7 +30,6 @@ class SubaruMsg(enum.IntEnum):
   ES_UDS_Request    = 0x787
   ES_HighBeamAssist = 0x22A
   ES_STATIC_1       = 0x325
-  Cruise_Buttons    = 0x146
   ES_STATIC_2       = 0x121
 
 
@@ -321,9 +320,16 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
                                                SubaruMsg.ES_Distance)}
 
 
-class SubaruCameraCopyTestMixin:
-  """A sunnypilot safety param that swaps a car message for openpilot's copy on the camera bus."""
-  SAFETY_PARAM_SP = 0
+class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafety):
+  """Gen1 long feeding the camera the response its own command expects: openpilot's copies of
+  Brake_Status and Throttle replace the car's on the camera bus, free to say anything about ES braking
+  and cruise throttle, honest about the driver's pedals, except the standstill gas tap."""
+  SAFETY_PARAM_SP = 2  # SUBARU_PARAM_SP_CAMERA_ECHO
+  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS) + \
+            [[SubaruMsg.Brake_Status, SUBARU_CAM_BUS], [SubaruMsg.Throttle, SUBARU_CAM_BUS]]
+  FWD_BLACKLISTED_ADDRS = {2: TestSubaruLongitudinalSafetyBase.FWD_BLACKLISTED_ADDRS[2], 0: [SubaruMsg.Brake_Status, SubaruMsg.Throttle]}
+  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1LongitudinalSafety.RELAY_MALFUNCTION_ADDRS,
+                             SUBARU_CAM_BUS: (SubaruMsg.Brake_Status, SubaruMsg.Throttle)}
 
   def setUp(self):
     self.safety = libsafety_py.libsafety
@@ -333,37 +339,13 @@ class SubaruCameraCopyTestMixin:
   def tearDown(self):
     self.safety.set_current_safety_param_sp(0)
 
-  def _cam_buttons_msg(self, main, set_, resume):
-    values = {"Main": main, "Set": set_, "Resume": resume}
-    return self.packer.make_can_msg_safety("Cruise_Buttons", SUBARU_CAM_BUS, values)
-
   def _cam_brake_status_msg(self, es_brake, brake):
     values = {"ES_Brake": es_brake, "Brake": brake}
     return self.packer.make_can_msg_safety("Brake_Status", SUBARU_CAM_BUS, values)
 
-
-class TestSubaruGen1LongitudinalHiddenButtonsSafety(SubaruCameraCopyTestMixin, TestSubaruGen1LongitudinalSafety):
-  """Gen1 long with the camera kept out of ACC: the car's Cruise_Buttons never reach the camera, and
-  openpilot's copy for it may carry main but never a press."""
-  SAFETY_PARAM_SP = 2  # SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS
-  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS) + [[SubaruMsg.Cruise_Buttons, SUBARU_CAM_BUS]]
-  FWD_BLACKLISTED_ADDRS = {2: TestSubaruLongitudinalSafetyBase.FWD_BLACKLISTED_ADDRS[2], 0: [SubaruMsg.Cruise_Buttons]}
-  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1LongitudinalSafety.RELAY_MALFUNCTION_ADDRS, SUBARU_CAM_BUS: (SubaruMsg.Cruise_Buttons,)}
-
-  def test_cruise_buttons_copy_carries_no_press(self):
-    for main in (0, 1):
-      self.assertTrue(self._tx(self._cam_buttons_msg(main, 0, 0)))
-      self.assertFalse(self._tx(self._cam_buttons_msg(main, 1, 0)))
-      self.assertFalse(self._tx(self._cam_buttons_msg(main, 0, 1)))
-
-
-class TestSubaruGen1LongitudinalBrakeEchoSafety(SubaruCameraCopyTestMixin, TestSubaruGen1LongitudinalSafety):
-  """Gen1 long feeding the camera the ES_Brake echo its own command expects: the copy of Brake_Status
-  may say anything about ES braking and only the truth about the driver's pedal."""
-  SAFETY_PARAM_SP = 8  # SUBARU_PARAM_SP_CAMERA_BRAKE_ECHO
-  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS) + [[SubaruMsg.Brake_Status, SUBARU_CAM_BUS]]
-  FWD_BLACKLISTED_ADDRS = {2: TestSubaruLongitudinalSafetyBase.FWD_BLACKLISTED_ADDRS[2], 0: [SubaruMsg.Brake_Status]}
-  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1LongitudinalSafety.RELAY_MALFUNCTION_ADDRS, SUBARU_CAM_BUS: (SubaruMsg.Brake_Status,)}
+  def _cam_throttle_msg(self, pedal, cruise):
+    values = {"Throttle_Pedal": pedal, "Throttle_Cruise": cruise}
+    return self.packer.make_can_msg_safety("Throttle", SUBARU_CAM_BUS, values)
 
   def test_brake_status_copy_keeps_the_pedal_honest(self):
     for pedal in (0, 1):
@@ -372,18 +354,21 @@ class TestSubaruGen1LongitudinalBrakeEchoSafety(SubaruCameraCopyTestMixin, TestS
         self.assertTrue(self._tx(self._cam_brake_status_msg(es_brake, pedal)))
         self.assertFalse(self._tx(self._cam_brake_status_msg(es_brake, 1 - pedal)))
 
+  def test_throttle_copy_keeps_the_pedal_honest(self):
+    for pedal in (0, 30, 5):
+      self._rx(self._user_gas_msg(pedal))
+      for cruise in (0, 45, 87):
+        self.assertTrue(self._tx(self._cam_throttle_msg(pedal, cruise)))
+        self.assertFalse(self._tx(self._cam_throttle_msg(pedal + 1, cruise)))
 
-class TestSubaruGen1StockLongitudinalButtonProbeSafety(SubaruCameraCopyTestMixin, TestSubaruGen1TorqueStockLongitudinalSafety):
-  """Stock long with the button probe: the car's Cruise_Buttons never reach the camera, openpilot's
-  copy carries the driver's presses and its own RESUME tap."""
-  SAFETY_PARAM_SP = 4  # SUBARU_PARAM_SP_CRUISE_BUTTON_PROBE
-  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + [[SubaruMsg.Cruise_Buttons, SUBARU_CAM_BUS]]
-  FWD_BLACKLISTED_ADDRS = {**TestSubaruGen1TorqueStockLongitudinalSafety.FWD_BLACKLISTED_ADDRS, 0: [SubaruMsg.Cruise_Buttons]}
-  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1TorqueStockLongitudinalSafety.RELAY_MALFUNCTION_ADDRS, SUBARU_CAM_BUS: (SubaruMsg.Cruise_Buttons,)}
+  def test_throttle_copy_gas_tap_only_at_a_standstill_while_engaged(self):
+    self._rx(self._user_gas_msg(0))
+    for controls_allowed in (False, True):
+      for moving in (False, True):
+        self.safety.set_controls_allowed(controls_allowed)
+        self._rx(self._speed_msg(5 if moving else 0))
+        self.assertEqual(controls_allowed and not moving, self._tx(self._cam_throttle_msg(5, 0)), (controls_allowed, moving))
 
-  def test_cruise_buttons_copy_may_press(self):
-    for main, set_, resume in ((0, 0, 0), (1, 0, 0), (1, 1, 0), (1, 0, 1)):
-      self.assertTrue(self._tx(self._cam_buttons_msg(main, set_, resume)))
 
 
 class TestSubaruGen2LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruGen2TorqueSafetyBase):

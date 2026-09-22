@@ -26,7 +26,6 @@
 #define MSG_SUBARU_Steering_Torque       0x119U
 #define MSG_SUBARU_Wheel_Speeds          0x13aU
 #define MSG_SUBARU_Brake_Pedal           0x139U
-#define MSG_SUBARU_Cruise_Buttons        0x146U
 
 #define MSG_SUBARU_ES_LKAS               0x122U
 #define MSG_SUBARU_ES_Brake              0x220U
@@ -61,11 +60,9 @@
 
 // openpilot's copies of car messages for the camera; each entry's relay check is what stops the
 // car's own frame reaching the camera, so the copy is the only one it sees
-#define SUBARU_CRUISE_BUTTONS_COPY_TX_MSGS \
-  {MSG_SUBARU_Cruise_Buttons,    SUBARU_CAM_BUS,  8, .check_relay = true}, \
-
-#define SUBARU_BRAKE_STATUS_COPY_TX_MSGS \
+#define SUBARU_CAMERA_ECHO_TX_MSGS \
   {MSG_SUBARU_Brake_Status,      SUBARU_CAM_BUS,  8, .check_relay = true}, \
+  {MSG_SUBARU_Throttle,          SUBARU_CAM_BUS,  8, .check_relay = true}, \
 
 #define SUBARU_COMMON_LONG_TX_MSGS(alt_bus) \
   {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true}, \
@@ -92,12 +89,12 @@
 
 static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
-// Cruise_Buttons copies: hidden (SET and RESUME cleared, so the camera's ACC never engages under
-// openpilot longitudinal) or probed (presses allowed, to learn whether the camera listens to CAN at all)
-static bool subaru_hide_cruise_buttons = false;
-static bool subaru_cruise_button_probe = false;
-// Brake_Status copy with the ES_Brake echo the camera expects from its own command
-static bool subaru_camera_brake_echo = false;
+// The camera faults about half a second after the car's brake echo or cruise throttle stops matching
+// its own ACC command, and takes PCB and LDW with it. Under openpilot longitudinal its Brake_Status and
+// Throttle are openpilot's copies carrying the response its command expects; the driver's pedals in
+// them stay true to the car, except the stock stop-and-go gas tap that releases its standstill hold.
+static bool subaru_camera_echo = false;
+static int subaru_throttle_pedal = 0;
 
 // Stock AEB while openpilot has longitudinal: the camera's ES_Brake is forwarded and openpilot's
 // refused for as long as the event lasts, as honda does. The camera takes the brake when it asks
@@ -175,6 +172,7 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
   }
 
   if ((msg->addr == MSG_SUBARU_Throttle) && (msg->bus == SUBARU_MAIN_BUS)) {
+    subaru_throttle_pedal = msg->data[4];
     gas_pressed = msg->data[4] != 0U;
   }
 }
@@ -270,14 +268,15 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
     violation |= longitudinal_transmission_rpm_checks(transmission_rpm, SUBARU_LONG_LIMITS);
   }
 
-  // the camera may learn main on or off from openpilot's copy; a press only while the probe runs
-  if (msg->addr == MSG_SUBARU_Cruise_Buttons) {
-    violation |= (GET_BIT(msg, 43U) || GET_BIT(msg, 44U)) && !subaru_cruise_button_probe;
-  }
-
-  // the copy may say what it likes about ES braking, never about the driver's foot
+  // the copies may say what they like about ES braking and cruise throttle, never about the
+  // driver's feet: the only invented pedal is the standstill gas tap that wakes the camera's hold
   if (msg->addr == MSG_SUBARU_Brake_Status) {
     violation |= (((msg->data[7] >> 6) & 1U) != brake_pressed);
+  }
+  if (msg->addr == MSG_SUBARU_Throttle) {
+    bool real_pedal = msg->data[4] == (uint8_t)subaru_throttle_pedal;
+    bool hold_release_tap = (msg->data[4] == 5U) && controls_allowed && !vehicle_moving;
+    violation |= !(real_pedal || hold_release_tap);
   }
 
   if (msg->addr == MSG_SUBARU_ES_UDS_Request) {
@@ -319,36 +318,10 @@ static safety_config subaru_init(uint16_t param) {
     SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
   };
 
-  static const CanMsg SUBARU_LONG_BUTTONS_TX_MSGS[] = {
-    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
-    SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
-    SUBARU_CRUISE_BUTTONS_COPY_TX_MSGS
-  };
-
   static const CanMsg SUBARU_LONG_ECHO_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
     SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
-    SUBARU_BRAKE_STATUS_COPY_TX_MSGS
-  };
-
-  static const CanMsg SUBARU_LONG_BUTTONS_ECHO_TX_MSGS[] = {
-    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
-    SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
-    SUBARU_CRUISE_BUTTONS_COPY_TX_MSGS
-    SUBARU_BRAKE_STATUS_COPY_TX_MSGS
-  };
-
-  static const CanMsg SUBARU_PROBE_TX_MSGS[] = {
-    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
-    SUBARU_COMMON_TX_MSGS(SUBARU_MAIN_BUS)
-    SUBARU_CRUISE_BUTTONS_COPY_TX_MSGS
-  };
-
-  static const CanMsg subaru_stop_and_go_probe_tx_msgs[] = {
-    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
-    SUBARU_COMMON_TX_MSGS(SUBARU_MAIN_BUS)
-    SUBARU_STOP_AND_GO_TX_MSGS
-    SUBARU_CRUISE_BUTTONS_COPY_TX_MSGS
+    SUBARU_CAMERA_ECHO_TX_MSGS
   };
 
   static const CanMsg SUBARU_GEN2_TX_MSGS[] = {
@@ -387,12 +360,9 @@ static safety_config subaru_init(uint16_t param) {
   subaru_brake = 0;
 
   subaru_common_init();
-  const uint16_t SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS = 2;
-  const uint16_t SUBARU_PARAM_SP_CRUISE_BUTTON_PROBE = 4;
-  const uint16_t SUBARU_PARAM_SP_CAMERA_BRAKE_ECHO = 8;
-  subaru_hide_cruise_buttons = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_HIDE_CRUISE_BUTTONS);
-  subaru_cruise_button_probe = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_CRUISE_BUTTON_PROBE);
-  subaru_camera_brake_echo = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_CAMERA_BRAKE_ECHO);
+  const uint16_t SUBARU_PARAM_SP_CAMERA_ECHO = 2;
+  subaru_camera_echo = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_CAMERA_ECHO);
+  subaru_throttle_pedal = 0;
 
 #ifdef ALLOW_DEBUG
   const uint16_t SUBARU_PARAM_LONGITUDINAL = 2;
@@ -405,17 +375,11 @@ static safety_config subaru_init(uint16_t param) {
                                 BUILD_SAFETY_CFG(subaru_gen2_rx_checks, SUBARU_GEN2_TX_MSGS);
   } else {
     if (subaru_longitudinal) {
-      // the button probe is a stock longitudinal experiment; under openpilot longitudinal the copy hides presses
-      subaru_cruise_button_probe = false;
-      ret = (subaru_hide_cruise_buttons && subaru_camera_brake_echo) ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_BUTTONS_ECHO_TX_MSGS) : \
-            subaru_hide_cruise_buttons ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_BUTTONS_TX_MSGS) : \
-            subaru_camera_brake_echo   ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_ECHO_TX_MSGS) : \
-                                         BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_TX_MSGS);
+      ret = subaru_camera_echo ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_ECHO_TX_MSGS) : \
+                                 BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_TX_MSGS);
     } else {
-      ret = (subaru_stop_and_go && subaru_cruise_button_probe) ? BUILD_SAFETY_CFG(subaru_rx_checks, subaru_stop_and_go_probe_tx_msgs) : \
-            subaru_stop_and_go         ? BUILD_SAFETY_CFG(subaru_rx_checks, subaru_stop_and_go_tx_msgs) : \
-            subaru_cruise_button_probe ? BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_PROBE_TX_MSGS) : \
-                                         BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_TX_MSGS);
+      ret = subaru_stop_and_go ? BUILD_SAFETY_CFG(subaru_rx_checks, subaru_stop_and_go_tx_msgs) : \
+                                 BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_TX_MSGS);
     }
   }
   return ret;
