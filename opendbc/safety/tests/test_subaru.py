@@ -412,13 +412,13 @@ class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafet
     for pedal in ramp:
       self.assertFalse(self._tx(self._cam_throttle_msg(pedal, 45)), pedal)
 
-  def test_throttle_copy_gas_tap_only_at_a_standstill_while_engaged(self):
+  def test_throttle_copy_gas_tap_only_below_walking_pace_while_engaged(self):
     self._rx(self._user_gas_msg(0))
     for controls_allowed in (False, True):
-      for moving in (False, True):
+      for v_ms in (0.0, 1.0, 5.0):
         self.safety.set_controls_allowed(controls_allowed)
-        self._rx(self._speed_msg(5 if moving else 0))
-        self.assertEqual(controls_allowed and not moving, self._tx(self._cam_throttle_msg(5, 0)), (controls_allowed, moving))
+        self._reset_speed_measurement(v_ms * CV.MS_TO_KPH)
+        self.assertEqual(controls_allowed and v_ms < 2., self._tx(self._cam_throttle_msg(5, 0)), (controls_allowed, v_ms))
 
 
 

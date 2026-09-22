@@ -47,6 +47,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     self.accel_last = 0.0
     self.rpm_last = None
     self.brake_last = 0
+    self.throttle_last = CarControllerParams.THROTTLE_INACTIVE
     self.stock_aeb = False
     self.lead_hold = 0
     self.braking = False
@@ -265,6 +266,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
           can_sends.append(subarucan.create_es_brake(self.packer, self.frame // 5, CS.es_brake_msg, bus,
                                                      self.CP.openpilotLongitudinalControl, CC.longActive, cruise_brake))
           self.brake_last = cruise_brake
+          self.throttle_last = cruise_throttle
 
           can_sends.append(subarucan.create_es_distance(self.packer, self.frame // 5, CS.es_distance_msg, bus, pcm_cancel_cmd,
                                                         self.CP.openpilotLongitudinalControl, cruise_brake > 0 or self.stock_aeb,

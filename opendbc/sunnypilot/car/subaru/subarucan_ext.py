@@ -84,7 +84,7 @@ def create_brake_status(packer, frame, brake_status_msg, es_brake):
   return packer.make_can_msg("Brake_Status", CanBus.camera, values)
 
 
-def create_throttle_echo(packer, frame, throttle_msg, throttle_cruise, gas_tap):
+def create_throttle_echo(packer, frame, throttle_msg, throttle_cruise, gas_tap_pedal):
   values = {s: throttle_msg[s] for s in [
     "CHECKSUM",
     "Signal1",
@@ -101,7 +101,10 @@ def create_throttle_echo(packer, frame, throttle_msg, throttle_cruise, gas_tap):
   values["Throttle_Cruise"] = throttle_cruise
   if values["Throttle_Pedal"] == 0:
     values["Throttle_Combo"] = throttle_cruise
-  if gas_tap:
-    values["Throttle_Pedal"] = 5
+  if gas_tap_pedal and values["Throttle_Pedal"] == 0:
+    # the driver's own pedal always goes through as it is; a tap only fills an empty one, and it
+    # moves the combined throttle with it, since a pedal on its own is a frame the camera rejects
+    values["Throttle_Pedal"] = gas_tap_pedal
+    values["Throttle_Combo"] = gas_tap_pedal
 
   return packer.make_can_msg("Throttle", CanBus.camera, values)
