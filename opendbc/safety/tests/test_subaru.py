@@ -349,17 +349,34 @@ class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafet
 
   def test_brake_status_copy_keeps_the_pedal_honest(self):
     for pedal in (0, 1):
-      self._rx(self._user_brake_msg(pedal))
+      for _ in range(10):
+        self._rx(self._user_brake_msg(pedal))
       for es_brake in (0, 1):
         self.assertTrue(self._tx(self._cam_brake_status_msg(es_brake, pedal)))
         self.assertFalse(self._tx(self._cam_brake_status_msg(es_brake, 1 - pedal)))
 
   def test_throttle_copy_keeps_the_pedal_honest(self):
     for pedal in (0, 30, 5):
-      self._rx(self._user_gas_msg(pedal))
+      for _ in range(10):
+        self._rx(self._user_gas_msg(pedal))
       for cruise in (0, 45, 87):
         self.assertTrue(self._tx(self._cam_throttle_msg(pedal, cruise)))
         self.assertFalse(self._tx(self._cam_throttle_msg(pedal + 1, cruise)))
+
+  def test_copies_may_lag_the_car_by_100ms(self):
+    # a pedal moving fast leaves the copy a frame or two behind; a refused copy is one the camera
+    # never gets, and it faults on the gap
+    ramp = [0, 4, 11, 17, 19, 22, 30, 41, 55, 60]
+    for pedal in ramp:
+      self._rx(self._user_gas_msg(pedal))
+    for pedal in ramp:
+      self.assertTrue(self._tx(self._cam_throttle_msg(pedal, 45)), pedal)
+    self.assertFalse(self._tx(self._cam_throttle_msg(61, 45)))
+    # and no further back than that
+    for pedal in range(70, 80):
+      self._rx(self._user_gas_msg(pedal))
+    for pedal in ramp:
+      self.assertFalse(self._tx(self._cam_throttle_msg(pedal, 45)), pedal)
 
   def test_throttle_copy_gas_tap_only_at_a_standstill_while_engaged(self):
     self._rx(self._user_gas_msg(0))

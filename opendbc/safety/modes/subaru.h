@@ -94,7 +94,31 @@ static bool subaru_longitudinal = false;
 // Throttle are openpilot's copies carrying the response its command expects; the driver's pedals in
 // them stay true to the car, except the stock stop-and-go gas tap that releases its standstill hold.
 static bool subaru_camera_echo = false;
-static int subaru_throttle_pedal = 0;
+// The copies are built from the last frame openpilot parsed, so their pedal fields lag the car's by
+// a frame or two. A strict match refuses every copy for the whole of a quick pedal movement, and a
+// refused copy is one the camera never receives: on 2026-09-22 a gas tap starved it of Throttle for
+// 0.4 s and it faulted. Accept any value the panda itself saw in the last 100 ms.
+#define SUBARU_PEDAL_HISTORY_LEN 10U
+static uint8_t subaru_throttle_pedal[SUBARU_PEDAL_HISTORY_LEN];
+static uint8_t subaru_throttle_pedal_idx = 0U;
+static bool subaru_brake_pedal[SUBARU_PEDAL_HISTORY_LEN];
+static uint8_t subaru_brake_pedal_idx = 0U;
+
+static bool subaru_seen_throttle_pedal(uint8_t pedal) {
+  bool seen = false;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    seen |= subaru_throttle_pedal[i] == pedal;
+  }
+  return seen;
+}
+
+static bool subaru_seen_brake_pedal(bool pressed) {
+  bool seen = false;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    seen |= subaru_brake_pedal[i] == pressed;
+  }
+  return seen;
+}
 
 // Stock AEB while openpilot has longitudinal: the camera's ES_Brake is forwarded and openpilot's
 // refused for as long as the event lasts, as honda does. The camera takes the brake when it asks
@@ -158,6 +182,8 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
 
   if ((msg->addr == MSG_SUBARU_Brake_Status) && (msg->bus == alt_main_bus)) {
     brake_pressed = (msg->data[7] >> 6) & 1U;
+    subaru_brake_pedal[subaru_brake_pedal_idx] = brake_pressed;
+    subaru_brake_pedal_idx = (subaru_brake_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
   }
 
   // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none
@@ -172,7 +198,8 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
   }
 
   if ((msg->addr == MSG_SUBARU_Throttle) && (msg->bus == SUBARU_MAIN_BUS)) {
-    subaru_throttle_pedal = msg->data[4];
+    subaru_throttle_pedal[subaru_throttle_pedal_idx] = msg->data[4];
+    subaru_throttle_pedal_idx = (subaru_throttle_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
     gas_pressed = msg->data[4] != 0U;
   }
 }
@@ -271,12 +298,11 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   // the copies may say what they like about ES braking and cruise throttle, never about the
   // driver's feet: the only invented pedal is the standstill gas tap that wakes the camera's hold
   if (msg->addr == MSG_SUBARU_Brake_Status) {
-    violation |= (((msg->data[7] >> 6) & 1U) != brake_pressed);
+    violation |= !subaru_seen_brake_pedal(((msg->data[7] >> 6) & 1U) != 0U);
   }
   if (msg->addr == MSG_SUBARU_Throttle) {
-    bool real_pedal = msg->data[4] == (uint8_t)subaru_throttle_pedal;
     bool hold_release_tap = (msg->data[4] == 5U) && controls_allowed && !vehicle_moving;
-    violation |= !(real_pedal || hold_release_tap);
+    violation |= !(subaru_seen_throttle_pedal(msg->data[4]) || hold_release_tap);
   }
 
   if (msg->addr == MSG_SUBARU_ES_UDS_Request) {
@@ -362,7 +388,12 @@ static safety_config subaru_init(uint16_t param) {
   subaru_common_init();
   const uint16_t SUBARU_PARAM_SP_CAMERA_ECHO = 2;
   subaru_camera_echo = GET_FLAG(current_safety_param_sp, SUBARU_PARAM_SP_CAMERA_ECHO);
-  subaru_throttle_pedal = 0;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    subaru_throttle_pedal[i] = 0U;
+    subaru_brake_pedal[i] = false;
+  }
+  subaru_throttle_pedal_idx = 0U;
+  subaru_brake_pedal_idx = 0U;
 
 #ifdef ALLOW_DEBUG
   const uint16_t SUBARU_PARAM_LONGITUDINAL = 2;
