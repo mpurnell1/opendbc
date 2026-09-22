@@ -371,7 +371,8 @@ class CAR(Platforms):
 # 50 counts; below 8 m/s EyeSight never holds (no ACC under 20 mph), so the stock inactive values
 # stay, and 38 m/s is the top of the corpus. The gains are the slope of stock's command above that
 # hold against the pitch-corrected acceleration it achieved 300 ms later, per speed band, from the
-# medians of 0.2 m/s^2 bins over 690k frames (~/projects/docs/subaru-forester-long-gains.md).
+# medians of 0.2 m/s^2 bins over 690k frames, and the coastdown from 98k free-rolling ones
+# (~/projects/docs/subaru-forester-long-gains.md).
 # Stock also steps its throttle by 170-480 counts the moment it starts accelerating, which a pure
 # gain cannot carry, and closes the throttle to 808 outright by -0.5 to -0.9 m/s^2 at every speed,
 # which the decel gain approximates. All four tables come from the same frames; swap them together.
@@ -387,6 +388,14 @@ _FORESTER_LONG: dict = {
   "RPM_GAIN_UP_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
   "RPM_GAIN_UP_V": [210, 330, 450, 650, 1150, 1350],
   "RPM_GAIN_DOWN": 100,
+  # Engine braking, measured the way the Crosstrek's was but on 98k frames: both pedals up for a
+  # full second, cruise off, gravity removed, parked frames excluded. Roughly twice the Crosstrek's
+  # from 3 to 12 m/s and slightly less above 20, peaking in the middle rather than rising with
+  # speed, which is the CVT talling out as aero drag takes over. Creep at a standstill is the same.
+  # The port credits this to the closed throttle before sizing the brake, so the old numbers had it
+  # adding brake for decelerations the closed throttle already covered.
+  "THR_DECEL_BP": [0.0,  1.0,  3.0,   5.0,   7.0,   9.0,   12.0,  16.0,  20.0,  24.0,  28.0],
+  "THR_DECEL_V": [0.22, 0.05, -0.37, -0.47, -0.65, -0.71, -0.63, -0.55, -0.49, -0.47, -0.51],
 }
 
 LONG_TUNE: dict = {
