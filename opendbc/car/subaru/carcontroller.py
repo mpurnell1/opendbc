@@ -288,7 +288,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
           can_sends.append(subarucan.create_es_static_2(self.packer))
 
     can_sends.extend(SnGCarController.create_stop_and_go(self, self.packer, CC, CS, self.frame))
-    can_sends.extend(CameraCopiesController.create_camera_copies(self, self.packer, CS, self.frame))
+    can_sends.extend(CameraCopiesController.create_camera_copies(self, self.packer, CC, CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.p.STEER_MAX
