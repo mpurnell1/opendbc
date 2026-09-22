@@ -117,14 +117,12 @@ class SnGCarState:
 
     self.brake_pedal_msg: dict[str, float] = {}
     self.throttle_msg: dict[str, float] = {}
-    self.cruise_buttons_msg: dict[str, float] = {}
     self.brake_status_msg: dict[str, float] = {}
 
   def update(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
     cp = can_parsers[Bus.pt]
 
     self.brake_pedal_msg = copy.copy(cp.vl["Brake_Pedal"])
-    self.cruise_buttons_msg = copy.copy(cp.vl["Cruise_Buttons"])
     self.brake_status_msg = copy.copy(cp.vl["Brake_Status"])
 
     if not self.CP.flags & SubaruFlags.HYBRID:

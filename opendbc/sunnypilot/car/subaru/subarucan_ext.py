@@ -68,23 +68,6 @@ def create_brake_pedal(packer, CP, brake_pedal_msg, send_resume):
   return packer.make_can_msg("Brake_Pedal", CanBus.camera, values)
 
 
-def create_cruise_buttons(packer, frame, cruise_buttons_msg, set_pressed, resume_pressed):
-  values = {s: cruise_buttons_msg[s] for s in [
-    "CHECKSUM",
-    "Signal1",
-    "Main",
-    "Set",
-    "Resume",
-    "Signal2",
-  ]}
-
-  values["COUNTER"] = frame % 0x10
-  values["Set"] = int(set_pressed)
-  values["Resume"] = int(resume_pressed)
-
-  return packer.make_can_msg("Cruise_Buttons", CanBus.camera, values)
-
-
 def create_brake_status(packer, frame, brake_status_msg, es_brake):
   values = {s: brake_status_msg[s] for s in [
     "CHECKSUM",
@@ -99,3 +82,26 @@ def create_brake_status(packer, frame, brake_status_msg, es_brake):
   values["ES_Brake"] = int(es_brake)
 
   return packer.make_can_msg("Brake_Status", CanBus.camera, values)
+
+
+def create_throttle_echo(packer, frame, throttle_msg, throttle_cruise, gas_tap):
+  values = {s: throttle_msg[s] for s in [
+    "CHECKSUM",
+    "Signal1",
+    "Engine_RPM",
+    "Neutral",
+    "Throttle_Pedal",
+    "Throttle_Cruise",
+    "Throttle_Combo",
+    "Signal3",
+    "Off_Accel",
+  ]}
+
+  values["COUNTER"] = frame % 0x10
+  values["Throttle_Cruise"] = throttle_cruise
+  if values["Throttle_Pedal"] == 0:
+    values["Throttle_Combo"] = throttle_cruise
+  if gas_tap:
+    values["Throttle_Pedal"] = 5
+
+  return packer.make_can_msg("Throttle", CanBus.camera, values)
