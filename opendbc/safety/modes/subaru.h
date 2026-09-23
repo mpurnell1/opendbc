@@ -65,7 +65,7 @@
   {MSG_SUBARU_Throttle,          SUBARU_CAM_BUS,  8, .check_relay = true}, \
 
 #define SUBARU_COMMON_LONG_TX_MSGS(alt_bus) \
-  {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true}, \
+  {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
   {MSG_SUBARU_ES_Brake,          alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
   {MSG_SUBARU_ES_Status,         alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
 
@@ -120,16 +120,16 @@ static bool subaru_seen_brake_pedal(bool pressed) {
   return seen;
 }
 
-// Stock AEB while openpilot has longitudinal: the camera's ES_Brake and ES_Status are forwarded and
-// openpilot's refused for as long as the event lasts, as honda does. The camera takes the brake when
-// it asks for at least what openpilot is, and keeps it until its event has ended and it asks no more,
-// so the stronger request reaches the brake module at both edges and the writer never chatters
-// between. ES_Status rides along because the car drops cruise main half a second after an active
-// ES_Brake arrives beside an ES_Status carrying Cruise_RPM 0, a pairing the camera never sends, and
-// the camera then faults. An event is its AEB_Status or its collision warning: in all six warning
-// events in 78 h of logs the camera put 50 to 100 counts on the wire, and the brake module acted on
-// them, with AEB_Status still 0. Its ordinary ACC braking carries no warning, so this does not hand
-// that over.
+// Stock AEB while openpilot has longitudinal: the camera's ES_Distance, ES_Brake and ES_Status are
+// forwarded and openpilot's refused for as long as the event lasts, as honda does. The camera takes
+// the brake when it asks for at least what openpilot is, and keeps it until its event has ended and
+// it asks no more, so the stronger request reaches the brake module at both edges and the writer
+// never chatters between. All three go together because the camera writes them as one burst on one
+// counter, and the car flags a brake and status on the camera's counter beside a distance frame on
+// openpilot's within half a second, after which the camera faults. An event is its AEB_Status or its
+// collision warning: in all six warning events in 78 h of logs the camera put 50 to 100 counts on
+// the wire, and the brake module acted on them, with AEB_Status still 0. Its ordinary ACC braking
+// carries no warning, so this does not hand that over.
 static bool subaru_stock_aeb = false;
 static bool subaru_collision_warning = false;
 static int subaru_brake = 0;
@@ -292,8 +292,8 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
     if (subaru_longitudinal) {
       violation |= longitudinal_gas_checks(cruise_throttle, SUBARU_LONG_LIMITS);
-      // no drive against a stock AEB stop
-      violation |= subaru_stock_aeb && (cruise_throttle > SUBARU_LONG_LIMITS.inactive_gas);
+      // the camera's ES_Distance rides with its ES_Brake while it brakes
+      violation |= subaru_stock_aeb;
     } else {
       // If openpilot is not controlling long, only allow ES_Distance for cruise cancel requests,
       // (when Cruise_Cancel is true, and Cruise_Throttle is inactive)
@@ -306,7 +306,6 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   if (msg->addr == MSG_SUBARU_ES_Status) {
     int transmission_rpm = (GET_BYTES(msg, 2, 2) & 0x1FFFU);
     violation |= longitudinal_transmission_rpm_checks(transmission_rpm, SUBARU_LONG_LIMITS);
-    // the camera's ES_Status rides with its ES_Brake while it brakes
     violation |= subaru_stock_aeb;
   }
 
@@ -342,9 +341,10 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 static bool subaru_fwd_hook(int bus_num, int addr) {
   bool block_msg = false;
 
-  // openpilot owns ES_Brake and ES_Status under gen1 longitudinal except while the camera's AEB
+  // openpilot owns the ES longitudinal burst under gen1 longitudinal except while the camera's AEB
   // actuates; on gen2 the camera is disabled and its ES messages ride the alt bus
-  if ((bus_num == SUBARU_CAM_BUS) && ((addr == MSG_SUBARU_ES_Brake) || (addr == MSG_SUBARU_ES_Status))) {
+  bool es_long = (addr == MSG_SUBARU_ES_Distance) || (addr == MSG_SUBARU_ES_Brake) || (addr == MSG_SUBARU_ES_Status);
+  if ((bus_num == SUBARU_CAM_BUS) && es_long) {
     block_msg = subaru_longitudinal && !subaru_gen2 && !subaru_stock_aeb;
   }
 

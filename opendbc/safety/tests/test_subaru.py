@@ -268,18 +268,23 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
   def _cam_status_forwarded(self):
     return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Status) == SUBARU_MAIN_BUS
 
+  def _cam_distance_forwarded(self):
+    return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Distance) == SUBARU_MAIN_BUS
+
   def test_stock_aeb_passthrough(self):
-    """The camera's ES_Brake and ES_Status are forwarded, openpilot's refused and so is any throttle
-    above inactive, from the camera claiming AEB with at least openpilot's brake until its event has
-    ended and it asks no more than openpilot."""
+    """The camera's ES_Distance, ES_Brake and ES_Status are forwarded and openpilot's refused, from the
+    camera claiming AEB with at least openpilot's brake until its event has ended and it asks no more
+    than openpilot."""
     self.safety.set_controls_allowed(True)
     self.assertTrue(self._tx(self._send_brake_msg(100)))
 
     self.assertTrue(self._rx(self._cam_brake_msg(0, 0)))
     self.assertFalse(self._cam_brake_forwarded())
     self.assertFalse(self._cam_status_forwarded())
+    self.assertFalse(self._cam_distance_forwarded())
     self.assertTrue(self._tx(self._send_brake_msg(100)))
     self.assertTrue(self._tx(self._send_rpm_msg(1000)))
+    self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
 
     # a weaker stock request never replaces a stronger one of ours
     self.assertTrue(self._rx(self._cam_brake_msg(8, 50)))
@@ -297,11 +302,10 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
         self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 300)))
         self.assertTrue(self._cam_brake_forwarded())
         self.assertTrue(self._cam_status_forwarded())
+        self.assertTrue(self._cam_distance_forwarded())
         self.assertFalse(self._tx(self._send_brake_msg(100)))
         self.assertFalse(self._tx(self._send_rpm_msg(0)))
-        self.assertFalse(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
-        self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS)))
-        self.assertTrue(self._tx(self._send_gas_msg(self.MIN_GAS)))
+        self.assertFalse(self._tx(self._send_gas_msg(self.INACTIVE_GAS)))
         # latched: the camera easing off mid-event does not hand the brake back
         self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 10)))
         self.assertTrue(self._cam_brake_forwarded())
@@ -313,6 +317,7 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
         self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
         self.assertFalse(self._cam_brake_forwarded())
         self.assertFalse(self._cam_status_forwarded())
+        self.assertFalse(self._cam_distance_forwarded())
         self.assertTrue(self._tx(self._send_brake_msg(100)))
         self.assertTrue(self._tx(self._send_rpm_msg(1000)))
         self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
