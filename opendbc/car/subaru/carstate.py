@@ -22,12 +22,14 @@ class CarState(CarStateBase):
     ret = structs.CarState()
 
     throttle_msg = cp.vl["Throttle"] if not (self.CP.flags & SubaruFlags.HYBRID) else cp_alt.vl["Throttle_Hybrid"]
+    self.throttle_msg = copy.copy(throttle_msg)
     ret.gasPressed = throttle_msg["Throttle_Pedal"] > 1e-5
     if self.CP.flags & SubaruFlags.PREGLOBAL:
       ret.brakePressed = cp.vl["Brake_Pedal"]["Brake_Pedal"] > 0
     else:
       cp_brakes = cp_alt if self.CP.flags & SubaruFlags.GLOBAL_GEN2 else cp
       ret.brakePressed = cp_brakes.vl["Brake_Status"]["Brake"] == 1
+      self.brake_status_msg = copy.copy(cp_brakes.vl["Brake_Status"])
 
     cp_es_distance = cp_alt if self.CP.flags & (SubaruFlags.GLOBAL_GEN2 | SubaruFlags.HYBRID) else cp_cam
     if not (self.CP.flags & SubaruFlags.HYBRID):
@@ -127,8 +129,9 @@ class CarState(CarStateBase):
 
       # TODO: Hybrid cars don't have ES_Distance, need a replacement
       if not (self.CP.flags & SubaruFlags.HYBRID):
-        # 8 is known AEB, there are a few other values related to AEB we ignore
-        ret.stockAeb = (cp_es_distance.vl["ES_Brake"]["AEB_Status"] == 8) and \
+        # AEB_Status 8 is actuation, 4 and 12 its related states; the panda forwards the camera's
+        # frame on any of them with pressure
+        ret.stockAeb = (cp_es_distance.vl["ES_Brake"]["AEB_Status"] != 0) and \
                        (cp_es_distance.vl["ES_Brake"]["Brake_Pressure"] != 0)
 
         self.es_status_msg = copy.copy(cp_es_brake.vl["ES_Status"])

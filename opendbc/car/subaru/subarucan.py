@@ -68,7 +68,7 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
 
 
 def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, cruise_available, dash_indicators,
-                         long_active, standstill, visual_alert, left_line, right_line,
+                         long_enabled, long_active, standstill, visual_alert, left_line, right_line,
                          left_lane_depart, right_lane_depart):
   values = {s: es_lkas_state_msg[s] for s in [
     "CHECKSUM",
@@ -96,6 +96,13 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
 
   # Filter the stock LKAS sending an audible alert when it turns off LKAS
   if values["LKAS_Alert"] == 27:
+    values["LKAS_Alert"] = 0
+
+  # The camera announces ACC disengaged whenever it sees cruise drop without having asked: it never
+  # sets Cruise_Cancel, it raises Cruise_Soft_Disable and waits for its own ES_Distance to carry the
+  # cancel, and under openpilot longitudinal that message is openpilot's. So every disengagement
+  # beeps, where stock never does (0 of 12 brake-press cancels in the logs).
+  if values["LKAS_Alert"] == 26 and long_enabled:
     values["LKAS_Alert"] = 0
 
   # Filter the stock LKAS sending an audible alert when "Keep hands on wheel" alert is active (2020+ models)
@@ -194,7 +201,6 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
   if long_enabled:
     values["Car_Follow"] = int(lead_visible)
 
-    values["PCB_Off"] = 1 # AEB is not preserved, so show the PCB_Off on dash
     values["LDW_Off"] = 0
     values["Cruise_Fault"] = 0
 
@@ -282,6 +288,48 @@ def create_es_status(packer, frame, es_status_msg, bus, long_enabled, long_activ
     values["Cruise_Activated"] = long_active
 
   return packer.make_can_msg("ES_Status", bus, values)
+
+
+def create_brake_status(packer, frame, brake_status_msg, es_brake):
+  values = {s: brake_status_msg[s] for s in [
+    "CHECKSUM",
+    "Signal1",
+    "ES_Brake",
+    "Signal2",
+    "Brake",
+    "Signal3",
+  ]}
+
+  values["COUNTER"] = frame % 0x10
+  values["ES_Brake"] = int(es_brake)
+
+  return packer.make_can_msg("Brake_Status", CanBus.camera, values)
+
+
+def create_throttle_echo(packer, frame, throttle_msg, throttle_cruise, gas_tap_pedal):
+  values = {s: throttle_msg[s] for s in [
+    "CHECKSUM",
+    "Signal1",
+    "Engine_RPM",
+    "Neutral",
+    "Throttle_Pedal",
+    "Throttle_Cruise",
+    "Throttle_Combo",
+    "Signal3",
+    "Off_Accel",
+  ]}
+
+  values["COUNTER"] = frame % 0x10
+  values["Throttle_Cruise"] = throttle_cruise
+  if values["Throttle_Pedal"] == 0:
+    values["Throttle_Combo"] = throttle_cruise
+  if gas_tap_pedal and values["Throttle_Pedal"] == 0:
+    # the driver's own pedal always goes through as it is; a tap only fills an empty one, and it
+    # moves the combined throttle with it, since a pedal on its own is a frame the camera rejects
+    values["Throttle_Pedal"] = gas_tap_pedal
+    values["Throttle_Combo"] = gas_tap_pedal
+
+  return packer.make_can_msg("Throttle", CanBus.camera, values)
 
 
 def create_es_infotainment(packer, frame, es_infotainment_msg, visual_alert):

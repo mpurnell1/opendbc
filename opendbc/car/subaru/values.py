@@ -203,6 +203,7 @@ class SubaruSafetyFlags(IntFlag):
   GEN2 = 1
   LONG = 2
   PREGLOBAL_REVERSED_DRIVER_TORQUE = 4
+  CAMERA_ECHO = 8
 
 
 class SubaruFlags(IntFlag):
@@ -219,6 +220,10 @@ class SubaruFlags(IntFlag):
   PREGLOBAL = 16
   HYBRID = 32
   LKAS_ANGLE = 64
+  # The camera faults about half a second after the car's brake echo or cruise throttle stops
+  # matching its own ACC command, taking PCB and LDW with it; under openpilot longitudinal it gets
+  # copies carrying the response its command expects (camera_copies.py)
+  CAMERA_ECHO = 256
 
   # Cluster and MFD indicators driven from openpilot's own state rather than passed through from
   # the camera. Global gen1 shares the cluster vocabulary, so all four platforms set it. A

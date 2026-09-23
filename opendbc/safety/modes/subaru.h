@@ -52,10 +52,16 @@
 #define SUBARU_COMMON_TX_MSGS(alt_bus) \
   {MSG_SUBARU_ES_Distance, alt_bus, 8, .check_relay = false}, \
 
+// openpilot's copies of car messages for the camera; each entry's relay check is what stops the
+// car's own frame reaching the camera, so the copy is the only one it sees
+#define SUBARU_CAMERA_ECHO_TX_MSGS \
+  {MSG_SUBARU_Brake_Status,      SUBARU_CAM_BUS,  8, .check_relay = true}, \
+  {MSG_SUBARU_Throttle,          SUBARU_CAM_BUS,  8, .check_relay = true}, \
+
 #define SUBARU_COMMON_LONG_TX_MSGS(alt_bus) \
-  {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true}, \
-  {MSG_SUBARU_ES_Brake,          alt_bus,         8, .check_relay = true}, \
-  {MSG_SUBARU_ES_Status,         alt_bus,         8, .check_relay = true}, \
+  {MSG_SUBARU_ES_Distance,       alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
+  {MSG_SUBARU_ES_Brake,          alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
+  {MSG_SUBARU_ES_Status,         alt_bus,         8, .check_relay = true, .disable_static_blocking = true}, \
 
 #define SUBARU_GEN2_LONG_ADDITIONAL_TX_MSGS() \
   {MSG_SUBARU_ES_UDS_Request,    SUBARU_CAM_BUS,  8, .check_relay = false}, \
@@ -70,8 +76,58 @@
   {.msg = {{MSG_SUBARU_Brake_Status,    alt_bus,         8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
   {.msg = {{MSG_SUBARU_CruiseControl,   alt_bus,         8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
 
+// under gen1 longitudinal the camera's ES_Brake and its collision warning drive the AEB latch
+#define SUBARU_LONG_RX_CHECKS(alt_bus) \
+  SUBARU_COMMON_RX_CHECKS(alt_bus) \
+  {.msg = {{MSG_SUBARU_ES_Brake,        SUBARU_CAM_BUS,  8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+  {.msg = {{MSG_SUBARU_ES_LKAS_State,   SUBARU_CAM_BUS,  8, 10U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
+
 static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
+// The camera faults about half a second after the car's brake echo or cruise throttle stops matching
+// its own ACC command, and takes PCB and LDW with it. Under openpilot longitudinal its Brake_Status and
+// Throttle are openpilot's copies carrying the response its command expects; the driver's pedals in
+// them stay true to the car, except the stock stop-and-go gas tap that releases its standstill hold.
+static bool subaru_camera_echo = false;
+// The copies are built from the last frame openpilot parsed, so their pedal fields lag the car's by
+// a frame or two. A strict match refuses every copy for the whole of a quick pedal movement, and a
+// refused copy is one the camera never receives: a gas tap once starved it of Throttle for 0.4 s and
+// it faulted. Accept any value the panda itself saw in the last 100 ms.
+#define SUBARU_PEDAL_HISTORY_LEN 10U
+static uint8_t subaru_throttle_pedal[SUBARU_PEDAL_HISTORY_LEN];
+static uint8_t subaru_throttle_pedal_idx = 0U;
+static bool subaru_brake_pedal[SUBARU_PEDAL_HISTORY_LEN];
+static uint8_t subaru_brake_pedal_idx = 0U;
+
+static bool subaru_seen_throttle_pedal(uint8_t pedal) {
+  bool seen = false;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    seen |= subaru_throttle_pedal[i] == pedal;
+  }
+  return seen;
+}
+
+static bool subaru_seen_brake_pedal(bool pressed) {
+  bool seen = false;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    seen |= subaru_brake_pedal[i] == pressed;
+  }
+  return seen;
+}
+
+// Stock AEB while openpilot has longitudinal: the camera's ES_Distance, ES_Brake and ES_Status are
+// forwarded and openpilot's refused for as long as the event lasts, as honda does. The camera takes
+// the brake when it asks for at least what openpilot is, and keeps it until its event has ended and
+// it asks no more, so the stronger request reaches the brake module at both edges and the writer
+// never chatters between. All three go together because the camera writes them as one burst on one
+// counter, and the car flags a brake and status on the camera's counter beside a distance frame on
+// openpilot's within half a second, after which the camera faults. An event is its AEB_Status or its
+// collision warning: in all six warning events in 78 h of logs the camera put 50 to 100 counts on
+// the wire, and the brake module acted on them, with AEB_Status still 0. Its ordinary ACC braking
+// carries no warning, so this does not hand that over.
+static bool subaru_stock_aeb = false;
+static bool subaru_collision_warning = false;
+static int subaru_brake = 0;
 
 static uint32_t subaru_get_checksum(const CANPacket_t *msg) {
   return (uint8_t)msg->data[0];
@@ -100,6 +156,14 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
     update_sample(&torque_driver, torque_driver_new);
   }
 
+  if ((msg->addr == MSG_SUBARU_ES_LKAS_State) && (msg->bus == SUBARU_CAM_BUS)) {
+    // LKAS_Alert is bits 32-36: 1 and 2 are the forward collision beeps, 5 pre-collision activated;
+    // LKAS_Alert_Msg is bits 12-14, 6 being pre-collision braking
+    int lkas_alert = msg->data[4] & 0x1FU;
+    int lkas_alert_msg = (msg->data[1] >> 4) & 0x7U;
+    subaru_collision_warning = (lkas_alert == 1) || (lkas_alert == 2) || (lkas_alert == 5) || (lkas_alert_msg == 6);
+  }
+
   // enter controls on rising edge of ACC, exit controls on ACC off
   if ((msg->addr == MSG_SUBARU_CruiseControl) && (msg->bus == alt_main_bus)) {
     bool cruise_engaged = (msg->data[5] >> 1) & 1U;
@@ -120,9 +184,24 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
 
   if ((msg->addr == MSG_SUBARU_Brake_Status) && (msg->bus == alt_main_bus)) {
     brake_pressed = (msg->data[7] >> 6) & 1U;
+    subaru_brake_pedal[subaru_brake_pedal_idx] = brake_pressed;
+    subaru_brake_pedal_idx = (subaru_brake_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
+  }
+
+  // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none
+  if ((msg->addr == MSG_SUBARU_ES_Brake) && (msg->bus == SUBARU_CAM_BUS)) {
+    bool aeb_event = ((msg->data[4] & 0xFU) != 0U) || subaru_collision_warning;
+    int stock_brake = GET_BYTES(msg, 2, 2);
+    if (subaru_stock_aeb) {
+      subaru_stock_aeb = aeb_event || (stock_brake > subaru_brake);
+    } else {
+      subaru_stock_aeb = aeb_event && (stock_brake > 0) && (stock_brake >= subaru_brake);
+    }
   }
 
   if ((msg->addr == MSG_SUBARU_Throttle) && (msg->bus == SUBARU_MAIN_BUS)) {
+    subaru_throttle_pedal[subaru_throttle_pedal_idx] = msg->data[4];
+    subaru_throttle_pedal_idx = (subaru_throttle_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
     gas_pressed = msg->data[4] != 0U;
   }
 }
@@ -188,7 +267,11 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   // check es_brake brake_pressure limits
   if (msg->addr == MSG_SUBARU_ES_Brake) {
     int es_brake_pressure = GET_BYTES(msg, 2, 2);
+    subaru_brake = es_brake_pressure;
     violation |= longitudinal_brake_checks(es_brake_pressure, SUBARU_LONG_LIMITS);
+    // only the camera claims AEB, and while it does its frame is on the bus instead
+    violation |= (msg->data[4] & 0xFU) != 0U;
+    violation |= subaru_stock_aeb;
   }
 
   // check es_distance cruise_throttle limits
@@ -198,6 +281,8 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
     if (subaru_longitudinal) {
       violation |= longitudinal_gas_checks(cruise_throttle, SUBARU_LONG_LIMITS);
+      // the camera's ES_Distance rides with its ES_Brake while it brakes
+      violation |= subaru_stock_aeb;
     } else {
       // If openpilot is not controlling long, only allow ES_Distance for cruise cancel requests,
       // (when Cruise_Cancel is true, and Cruise_Throttle is inactive)
@@ -210,6 +295,20 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   if (msg->addr == MSG_SUBARU_ES_Status) {
     int transmission_rpm = (GET_BYTES(msg, 2, 2) & 0x1FFFU);
     violation |= longitudinal_transmission_rpm_checks(transmission_rpm, SUBARU_LONG_LIMITS);
+    violation |= subaru_stock_aeb;
+  }
+
+  // the copies may say what they like about ES braking and cruise throttle, never about the
+  // driver's feet: the only invented pedal is the standstill gas tap that wakes the camera's hold
+  if (msg->addr == MSG_SUBARU_Brake_Status) {
+    violation |= !subaru_seen_brake_pedal(((msg->data[7] >> 6) & 1U) != 0U);
+  }
+  if (msg->addr == MSG_SUBARU_Throttle) {
+    // the tap leaves a standstill, and the car creeps before the wheel speeds read zero-free, so the
+    // exception runs to walking pace: a refused copy is one the camera never gets
+    bool hold_release_tap = (msg->data[4] == 5U) && controls_allowed &&
+                            ((vehicle_speed.max / VEHICLE_SPEED_FACTOR) < 2.0);
+    violation |= !(subaru_seen_throttle_pedal(msg->data[4]) || hold_release_tap);
   }
 
   if (msg->addr == MSG_SUBARU_ES_UDS_Request) {
@@ -228,6 +327,19 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   return tx;
 }
 
+static bool subaru_fwd_hook(int bus_num, int addr) {
+  bool block_msg = false;
+
+  // openpilot owns the ES longitudinal burst under gen1 longitudinal except while the camera's AEB
+  // actuates; on gen2 the camera is disabled and its ES messages ride the alt bus
+  bool es_long = (addr == MSG_SUBARU_ES_Distance) || (addr == MSG_SUBARU_ES_Brake) || (addr == MSG_SUBARU_ES_Status);
+  if ((bus_num == SUBARU_CAM_BUS) && es_long) {
+    block_msg = subaru_longitudinal && !subaru_gen2 && !subaru_stock_aeb;
+  }
+
+  return block_msg;
+}
+
 static safety_config subaru_init(uint16_t param) {
   static const CanMsg SUBARU_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
@@ -237,6 +349,12 @@ static safety_config subaru_init(uint16_t param) {
   static const CanMsg SUBARU_LONG_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
     SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
+  };
+
+  static const CanMsg SUBARU_LONG_ECHO_TX_MSGS[] = {
+    SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
+    SUBARU_COMMON_LONG_TX_MSGS(SUBARU_MAIN_BUS)
+    SUBARU_CAMERA_ECHO_TX_MSGS
   };
 
   static const CanMsg SUBARU_GEN2_TX_MSGS[] = {
@@ -254,6 +372,10 @@ static safety_config subaru_init(uint16_t param) {
     SUBARU_COMMON_RX_CHECKS(SUBARU_MAIN_BUS)
   };
 
+  static RxCheck subaru_long_rx_checks[] = {
+    SUBARU_LONG_RX_CHECKS(SUBARU_MAIN_BUS)
+  };
+
   static RxCheck subaru_gen2_rx_checks[] = {
     SUBARU_COMMON_RX_CHECKS(SUBARU_ALT_BUS)
   };
@@ -261,10 +383,22 @@ static safety_config subaru_init(uint16_t param) {
   const uint16_t SUBARU_PARAM_GEN2 = 1;
 
   subaru_gen2 = GET_FLAG(param, SUBARU_PARAM_GEN2);
+  subaru_stock_aeb = false;
+  subaru_collision_warning = false;
+  subaru_brake = 0;
+  subaru_camera_echo = false;
+  for (uint8_t i = 0U; i < SUBARU_PEDAL_HISTORY_LEN; i++) {
+    subaru_throttle_pedal[i] = 0U;
+    subaru_brake_pedal[i] = false;
+  }
+  subaru_throttle_pedal_idx = 0U;
+  subaru_brake_pedal_idx = 0U;
 
 #ifdef ALLOW_DEBUG
   const uint16_t SUBARU_PARAM_LONGITUDINAL = 2;
   subaru_longitudinal = GET_FLAG(param, SUBARU_PARAM_LONGITUDINAL);
+  const uint16_t SUBARU_PARAM_CAMERA_ECHO = 8;
+  subaru_camera_echo = subaru_longitudinal && !subaru_gen2 && GET_FLAG(param, SUBARU_PARAM_CAMERA_ECHO);
 #endif
 
   safety_config ret;
@@ -272,8 +406,12 @@ static safety_config subaru_init(uint16_t param) {
     ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_gen2_rx_checks, SUBARU_GEN2_LONG_TX_MSGS) : \
                                 BUILD_SAFETY_CFG(subaru_gen2_rx_checks, SUBARU_GEN2_TX_MSGS);
   } else {
-    ret = subaru_longitudinal ? BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_LONG_TX_MSGS) : \
-                                BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_TX_MSGS);
+    if (subaru_longitudinal) {
+      ret = subaru_camera_echo ? BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_ECHO_TX_MSGS) : \
+                                 BUILD_SAFETY_CFG(subaru_long_rx_checks, SUBARU_LONG_TX_MSGS);
+    } else {
+      ret = BUILD_SAFETY_CFG(subaru_rx_checks, SUBARU_TX_MSGS);
+    }
   }
   return ret;
 }
@@ -282,6 +420,7 @@ const safety_hooks subaru_hooks = {
   .init = subaru_init,
   .rx = subaru_rx_hook,
   .tx = subaru_tx_hook,
+  .fwd = subaru_fwd_hook,
   .get_counter = subaru_get_counter,
   .get_checksum = subaru_get_checksum,
   .compute_checksum = subaru_compute_checksum,

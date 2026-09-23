@@ -6,6 +6,7 @@ from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
+from opendbc.car.subaru.camera_copies import CameraCopiesController
 from opendbc.car.subaru.values import DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 
 # FIXME: These limits aren't exact. The real limit is more than likely over a larger time period and
@@ -28,9 +29,10 @@ ACCEL_RATE_LIMIT = 4.0 * DT_CTRL  # m/s^2 per frame
 LEAD_HOLD_FRAMES = int(1.0 / DT_CTRL)
 
 
-class CarController(CarControllerBase):
+class CarController(CarControllerBase, CameraCopiesController):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
+    CameraCopiesController.__init__(self, CP)
     self.apply_torque_last = 0
 
     self.cruise_button_prev = 0
@@ -41,6 +43,9 @@ class CarController(CarControllerBase):
 
     self.accel_last = 0.0
     self.rpm_last = None
+    self.brake_last = 0
+    self.throttle_last = CarControllerParams.THROTTLE_INACTIVE
+    self.stock_aeb = False
     self.lead_hold = 0
     self.braking = False
     self.decel_req = False
@@ -98,6 +103,17 @@ class CarController(CarControllerBase):
       self.apply_torque_last = apply_torque
 
     # *** longitudinal ***
+
+    # Mirror of the panda's stock AEB latch (safety/modes/subaru.h): while it is set the panda forwards
+    # the camera's ES burst and refuses ours, so the two must agree.
+    if self.CP.openpilotLongitudinalControl:
+      cam_aeb = CS.es_brake_msg["AEB_Status"] != 0 or CS.out.stockFcw or \
+                CS.es_lkas_state_msg["LKAS_Alert"] == 5 or CS.es_lkas_state_msg["LKAS_Alert_Msg"] == 6
+      cam_brake = CS.es_brake_msg["Brake_Pressure"]
+      if self.stock_aeb:
+        self.stock_aeb = cam_aeb or cam_brake > self.brake_last
+      else:
+        self.stock_aeb = cam_aeb and cam_brake > 0 and cam_brake >= self.brake_last
 
     if CC.longActive:
       # The stock lookup has no speed term, so zero requested accel always commands
@@ -181,6 +197,12 @@ class CarController(CarControllerBase):
       cruise_throttle = np.clip(apply_throttle, CarControllerParams.THROTTLE_MIN, thr_ceiling)
       cruise_rpm = np.clip(apply_rpm, CarControllerParams.RPM_MIN, CarControllerParams.RPM_MAX)
       cruise_brake = np.clip(apply_brake, CarControllerParams.BRAKE_MIN, CarControllerParams.BRAKE_MAX)
+
+      # no drive against the camera's brake
+      if self.stock_aeb:
+        cruise_throttle = CarControllerParams.THROTTLE_MIN
+        cruise_rpm = CarControllerParams.RPM_MIN
+        self.rpm_last = None
     else:
       self.accel_last = 0.0
       self.braking = False
@@ -220,7 +242,8 @@ class CarController(CarControllerBase):
 
         can_sends.append(subarucan.create_es_lkas_state(self.packer, self.frame // 10, CS.es_lkas_state_msg, CC.enabled, CC.latActive,
                                                         CS.out.cruiseState.available, dash_indicators,
-                                                        CC.longActive, CS.out.standstill, hud_control.visualAlert,
+                                                        self.CP.openpilotLongitudinalControl, CC.longActive,
+                                                        CS.out.standstill, hud_control.visualAlert,
                                                         hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                                         hud_control.leftLaneDepart, hud_control.rightLaneDepart))
 
@@ -239,9 +262,12 @@ class CarController(CarControllerBase):
 
           can_sends.append(subarucan.create_es_brake(self.packer, self.frame // 5, CS.es_brake_msg, bus,
                                                      self.CP.openpilotLongitudinalControl, CC.longActive, cruise_brake))
+          self.brake_last = cruise_brake
+          self.throttle_last = cruise_throttle
 
           can_sends.append(subarucan.create_es_distance(self.packer, self.frame // 5, CS.es_distance_msg, bus, pcm_cancel_cmd,
-                                                        self.CP.openpilotLongitudinalControl, cruise_brake > 0, cruise_throttle))
+                                                        self.CP.openpilotLongitudinalControl, cruise_brake > 0 or self.stock_aeb,
+                                                        cruise_throttle))
       else:
         if pcm_cancel_cmd:
           if not (self.CP.flags & SubaruFlags.HYBRID):
@@ -261,6 +287,8 @@ class CarController(CarControllerBase):
 
         if self.frame % 2 == 0:
           can_sends.append(subarucan.create_es_static_2(self.packer))
+
+    can_sends.extend(CameraCopiesController.create_camera_copies(self, self.packer, CC, CS, self.frame))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.p.STEER_MAX

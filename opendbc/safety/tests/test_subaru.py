@@ -189,8 +189,8 @@ class TestSubaruLongitudinalSafetyBase(TestSubaruSafetyBase, common.Longitudinal
   def test_rpm_safety_check(self):
     self._generic_limit_safety_check(self._send_rpm_msg, self.MIN_RPM, self.MAX_RPM, 0, self.MAX_POSSIBLE_RPM, 1)
 
-  def _send_brake_msg(self, brake):
-    values = {"Brake_Pressure": brake}
+  def _send_brake_msg(self, brake, aeb_status=0):
+    values = {"Brake_Pressure": brake, "AEB_Status": aeb_status}
     return self.packer.make_can_msg_safety("ES_Brake", self.ALT_MAIN_BUS, values)
 
   def _send_gas_msg(self, gas):
@@ -200,6 +200,13 @@ class TestSubaruLongitudinalSafetyBase(TestSubaruSafetyBase, common.Longitudinal
   def _send_rpm_msg(self, rpm):
     values = {"Cruise_RPM": rpm}
     return self.packer.make_can_msg_safety("ES_Status", self.ALT_MAIN_BUS, values)
+
+  def _cam_brake_msg(self, aeb_status, brake):
+    # its own packer: the camera's counter sequence is independent of openpilot's ES_Brake
+    if not hasattr(self, "cam_packer"):
+      self.cam_packer = CANPackerSafety("subaru_global_2017_generated")
+    values = {"AEB_Status": aeb_status, "Brake_Pressure": brake}
+    return self.cam_packer.make_can_msg_safety("ES_Brake", SUBARU_CAM_BUS, values)
 
 
 class TestSubaruTorqueSafetyBase(TestSubaruSafetyBase, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):
@@ -239,9 +246,170 @@ class TestSubaruGen2TorqueStockLongitudinalSafety(TestSubaruStockLongitudinalSaf
 class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruTorqueSafetyBase):
   FLAGS = SubaruSafetyFlags.LONG
   TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS)
+
+  def _cam_brake_forwarded(self):
+    return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Brake) == SUBARU_MAIN_BUS
+
+  def _cam_status_forwarded(self):
+    return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Status) == SUBARU_MAIN_BUS
+
+  def _cam_distance_forwarded(self):
+    return self.safety.safety_fwd_hook(SUBARU_CAM_BUS, SubaruMsg.ES_Distance) == SUBARU_MAIN_BUS
+
+  def test_stock_aeb_passthrough(self):
+    """The camera's ES_Distance, ES_Brake and ES_Status are forwarded and openpilot's refused, from the
+    camera claiming AEB with at least openpilot's brake until its event has ended and it asks no more
+    than openpilot."""
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    self.assertTrue(self._rx(self._cam_brake_msg(0, 0)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertFalse(self._cam_status_forwarded())
+    self.assertFalse(self._cam_distance_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+    self.assertTrue(self._tx(self._send_rpm_msg(1000)))
+    self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
+
+    # a weaker stock request never replaces a stronger one of ours
+    self.assertTrue(self._rx(self._cam_brake_msg(8, 50)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    # nor does a status without pressure, even against no brake of ours
+    self.assertTrue(self._tx(self._send_brake_msg(0)))
+    self.assertTrue(self._rx(self._cam_brake_msg(8, 0)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+
+    for aeb_status in (8, 4, 12):
+      with self.subTest(aeb_status=aeb_status):
+        self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 300)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertTrue(self._cam_status_forwarded())
+        self.assertTrue(self._cam_distance_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+        self.assertFalse(self._tx(self._send_rpm_msg(0)))
+        self.assertFalse(self._tx(self._send_gas_msg(self.INACTIVE_GAS)))
+        # latched: the camera easing off mid-event does not hand the brake back
+        self.assertTrue(self._rx(self._cam_brake_msg(aeb_status, 10)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+        # nor does the event ending while the camera still asks for more than we do
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 150)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
+        self.assertFalse(self._cam_brake_forwarded())
+        self.assertFalse(self._cam_status_forwarded())
+        self.assertFalse(self._cam_distance_forwarded())
+        self.assertTrue(self._tx(self._send_brake_msg(100)))
+        self.assertTrue(self._tx(self._send_rpm_msg(1000)))
+        self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
+
+  def _cam_warning_msg(self, lkas_alert=0, lkas_alert_msg=0):
+    values = {"LKAS_Alert": lkas_alert, "LKAS_Alert_Msg": lkas_alert_msg}
+    return self.packer.make_can_msg_safety("ES_LKAS_State", SUBARU_CAM_BUS, values)
+
+  def test_collision_warning_forwards_the_precharge(self):
+    """The camera brakes during its warning stage with AEB_Status still 0, and the brake module acts
+    on it, so the warning opens the latch on the same terms as the status."""
+    self.safety.set_controls_allowed(True)
+    for alert, alert_msg in ((1, 0), (2, 0), (5, 0), (0, 6)):
+      with self.subTest(alert=alert, alert_msg=alert_msg):
+        self.assertTrue(self._tx(self._send_brake_msg(0)))
+        self.assertTrue(self._rx(self._cam_warning_msg()))
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
+        self.assertFalse(self._cam_brake_forwarded())
+
+        self.assertTrue(self._rx(self._cam_warning_msg(alert, alert_msg)))
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
+        self.assertTrue(self._cam_brake_forwarded())
+        self.assertFalse(self._tx(self._send_brake_msg(100)))
+
+        # the warning ending releases it only once the camera asks no more than openpilot
+        self.assertTrue(self._rx(self._cam_warning_msg()))
+        self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
+        self.assertFalse(self._cam_brake_forwarded())
+        self.assertTrue(self._tx(self._send_brake_msg(0)))
+
+  def test_ordinary_camera_braking_is_not_forwarded(self):
+    # the camera's own ACC braking carries no warning, whatever it asks for
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._rx(self._cam_warning_msg()))
+    for brake in (100, 346, 579):
+      self.assertTrue(self._rx(self._cam_brake_msg(0, brake)))
+      self.assertFalse(self._cam_brake_forwarded(), brake)
+
+  def test_no_aeb_claim(self):
+    # only the camera claims AEB
+    self.safety.set_controls_allowed(True)
+    for aeb_status in (4, 8, 12):
+      self.assertFalse(self._tx(self._send_brake_msg(100, aeb_status)))
+    self.assertTrue(self._tx(self._send_brake_msg(100, 0)))
+
   RELAY_MALFUNCTION_ADDRS = {SUBARU_MAIN_BUS: (SubaruMsg.ES_LKAS, SubaruMsg.ES_DashStatus, SubaruMsg.ES_LKAS_State,
                                                SubaruMsg.ES_Infotainment, SubaruMsg.ES_Brake, SubaruMsg.ES_Status,
                                                SubaruMsg.ES_Distance)}
+
+
+class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafety):
+  """Gen1 long feeding the camera the response its own command expects: openpilot's copies of
+  Brake_Status and Throttle replace the car's on the camera bus, free to say anything about ES braking
+  and cruise throttle, honest about the driver's pedals, except the standstill gas tap."""
+  FLAGS = SubaruSafetyFlags.LONG | SubaruSafetyFlags.CAMERA_ECHO
+  TX_MSGS = lkas_tx_msgs(SUBARU_MAIN_BUS) + long_tx_msgs(SUBARU_MAIN_BUS) + \
+            [[SubaruMsg.Brake_Status, SUBARU_CAM_BUS], [SubaruMsg.Throttle, SUBARU_CAM_BUS]]
+  FWD_BLACKLISTED_ADDRS = {2: TestSubaruLongitudinalSafetyBase.FWD_BLACKLISTED_ADDRS[2], 0: [SubaruMsg.Brake_Status, SubaruMsg.Throttle]}
+  RELAY_MALFUNCTION_ADDRS = {**TestSubaruGen1LongitudinalSafety.RELAY_MALFUNCTION_ADDRS,
+                             SUBARU_CAM_BUS: (SubaruMsg.Brake_Status, SubaruMsg.Throttle)}
+
+  def _cam_brake_status_msg(self, es_brake, brake):
+    values = {"ES_Brake": es_brake, "Brake": brake}
+    return self.packer.make_can_msg_safety("Brake_Status", SUBARU_CAM_BUS, values)
+
+  def _cam_throttle_msg(self, pedal, cruise):
+    values = {"Throttle_Pedal": pedal, "Throttle_Cruise": cruise}
+    return self.packer.make_can_msg_safety("Throttle", SUBARU_CAM_BUS, values)
+
+  def test_brake_status_copy_keeps_the_pedal_honest(self):
+    for pedal in (0, 1):
+      for _ in range(10):
+        self._rx(self._user_brake_msg(pedal))
+      for es_brake in (0, 1):
+        self.assertTrue(self._tx(self._cam_brake_status_msg(es_brake, pedal)))
+        self.assertFalse(self._tx(self._cam_brake_status_msg(es_brake, 1 - pedal)))
+
+  def test_throttle_copy_keeps_the_pedal_honest(self):
+    for pedal in (0, 30, 5):
+      for _ in range(10):
+        self._rx(self._user_gas_msg(pedal))
+      for cruise in (0, 45, 87):
+        self.assertTrue(self._tx(self._cam_throttle_msg(pedal, cruise)))
+        self.assertFalse(self._tx(self._cam_throttle_msg(pedal + 1, cruise)))
+
+  def test_copies_may_lag_the_car_by_100ms(self):
+    # a pedal moving fast leaves the copy a frame or two behind; a refused copy is one the camera
+    # never gets, and it faults on the gap
+    ramp = [0, 4, 11, 17, 19, 22, 30, 41, 55, 60]
+    for pedal in ramp:
+      self._rx(self._user_gas_msg(pedal))
+    for pedal in ramp:
+      self.assertTrue(self._tx(self._cam_throttle_msg(pedal, 45)), pedal)
+    self.assertFalse(self._tx(self._cam_throttle_msg(61, 45)))
+    # and no further back than that
+    for pedal in range(70, 80):
+      self._rx(self._user_gas_msg(pedal))
+    for pedal in ramp:
+      self.assertFalse(self._tx(self._cam_throttle_msg(pedal, 45)), pedal)
+
+  def test_throttle_copy_gas_tap_only_below_walking_pace_while_engaged(self):
+    self._rx(self._user_gas_msg(0))
+    for controls_allowed in (False, True):
+      for v_ms in (0.0, 1.0, 5.0):
+        self.safety.set_controls_allowed(controls_allowed)
+        self._reset_speed_measurement(v_ms * CV.MS_TO_KPH)
+        self.assertEqual(controls_allowed and v_ms < 2., self._tx(self._cam_throttle_msg(5, 0)), (controls_allowed, v_ms))
 
 
 class TestSubaruGen2LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruGen2TorqueSafetyBase):

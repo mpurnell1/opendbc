@@ -108,6 +108,9 @@ class CarInterface(CarInterfaceBase):
 
     if ret.openpilotLongitudinalControl:
       ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.LONG.value
+      if not (ret.flags & SubaruFlags.GLOBAL_GEN2):
+        ret.flags |= SubaruFlags.CAMERA_ECHO.value
+        ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.CAMERA_ECHO.value
 
     return ret
 
