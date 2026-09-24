@@ -1,6 +1,6 @@
 import unittest
 
-from opendbc.can import CANPacker
+from opendbc.can import CANPacker, CANParser
 from opendbc.car import Bus
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
@@ -160,8 +160,50 @@ class TestSubaruStockAeb(unittest.TestCase):
     for alert in (1, 2):
       assert self._drive(ci, packer, 0, 100, 0, lkas_alert=alert)[1:] == (808, 1, 0), alert
       assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), alert
-    # the camera's own ACC braking is not one
+    # pressure without the camera's active bit is not a command of any kind
     assert self._drive(ci, packer, 0, 346, 0)[1:] == (hold, 0, 0)
+
+
+class TestSubaruCameraAccBrake(unittest.TestCase):
+  """The camera's own ACC brakes behind a lead whenever ours does; a command of its own the car does
+  not honour faults it once it moves on, so it is never given less than it asks for."""
+
+  def _interface(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+
+  def _drive(self, ci, packer, parser, pressure, active, accel=0.0, steps=10):
+    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Brake_Pressure": pressure, "Cruise_Brake_Active": active}))]
+    ci.update([(0, frames)])
+    ci.CS.out.vEgo = 25.0
+    CC = structs.CarControl(enabled=True, longActive=True, actuators=structs.CarControl.Actuators(accel=accel)).as_reader()
+    sent = []
+    for _ in range(steps):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if addr in (0x220, 0x221) and bus == 0]
+    parser.update([(0, sent)])
+    return int(parser.vl["ES_Brake"]["Brake_Pressure"]), int(parser.vl["ES_Distance"]["Cruise_Throttle"])
+
+  def test_camera_braking_harder_than_openpilot_is_mirrored(self):
+    ci, packer, parser = self._interface()
+    self._drive(ci, packer, parser, 0, 0)  # the parser drops the first frame after construction
+    _, hold = self._drive(ci, packer, parser, 0, 0)
+    assert hold > CarControllerParams.THROTTLE_MIN
+    assert self._drive(ci, packer, parser, 346, 1) == (346, CarControllerParams.THROTTLE_MIN)
+    assert self._drive(ci, packer, parser, 700, 1) == (CarControllerParams.BRAKE_MAX, CarControllerParams.THROTTLE_MIN)
+    assert self._drive(ci, packer, parser, 0, 0) == (0, hold)
+
+  def test_openpilot_braking_harder_keeps_its_own(self):
+    ci, packer, parser = self._interface()
+    self._drive(ci, packer, parser, 0, 0)
+    # the controller ramps its own request in over many frames
+    ours, _ = self._drive(ci, packer, parser, 0, 0, accel=-2.5, steps=300)
+    assert ours > 100
+    assert self._drive(ci, packer, parser, 100, 1, accel=-2.5, steps=300) == (ours, CarControllerParams.THROTTLE_MIN)
 
 
 class TestSubaruStopAndGoUnderLong(unittest.TestCase):
