@@ -109,10 +109,13 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
 
     # Mirror of the panda's stock AEB latch (safety/modes/subaru.h): while it is set the panda forwards
     # the camera's ES_Brake and refuses ours and any throttle above inactive, so the two must agree.
+    cam_brake = 0
+    cam_acc_braking = False
     if self.CP.openpilotLongitudinalControl:
       cam_aeb = CS.es_brake_msg["AEB_Status"] != 0 or CS.out.stockFcw or \
                 CS.es_lkas_state_msg["LKAS_Alert"] == 5 or CS.es_lkas_state_msg["LKAS_Alert_Msg"] == 6
       cam_brake = CS.es_brake_msg["Brake_Pressure"]
+      cam_acc_braking = bool(CS.es_brake_msg["Cruise_Brake_Active"]) and not cam_aeb
       if self.stock_aeb:
         self.stock_aeb = cam_aeb or cam_brake > self.brake_last
       else:
@@ -201,8 +204,17 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
       cruise_rpm = np.clip(apply_rpm, CarControllerParams.RPM_MIN, CarControllerParams.RPM_MAX)
       cruise_brake = np.clip(apply_brake, CarControllerParams.BRAKE_MIN, CarControllerParams.BRAKE_MAX)
 
+      # The camera's own ACC brakes behind a lead whenever ours does, and a brake command of its
+      # own the car does not honour faults it once it moves on (452 asked, 299 given, fault at the
+      # stop: subaru-long-aeb-passthrough.md), so it is never given less than it asks for. The
+      # panda cannot verify a copy, hence its cap.
+      mirror_cam = cam_acc_braking and cam_brake > cruise_brake
+      if mirror_cam:
+        cruise_brake = min(int(cam_brake), CarControllerParams.BRAKE_MAX)
+        self.braking = True
+
       # no drive against the camera's brake
-      if self.stock_aeb:
+      if self.stock_aeb or mirror_cam:
         cruise_throttle = CarControllerParams.THROTTLE_MIN
         cruise_rpm = CarControllerParams.RPM_MIN
         self.rpm_last = None
