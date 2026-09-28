@@ -54,8 +54,9 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
   if long_enabled:
     values["Cruise_Throttle"] = cruise_throttle
 
-    # Do not disable openpilot on Eyesight Soft Disable, if openpilot is controlling long
-    values["Cruise_Soft_Disable"] = 0
+    # The camera's soft disable stays: the ECM cancels ACC on it (the DBC comment), and a burst
+    # without it has the ECM drop cruise main 0.5 s later and the camera latch Cruise_Fault
+    # until the next ignition (subaru-long-aeb-passthrough.md).
     values["Cruise_Fault"] = 0
 
     values["Cruise_Brake_Active"] = brake_cmd
