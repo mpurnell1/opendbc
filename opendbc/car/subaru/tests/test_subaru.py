@@ -206,6 +206,37 @@ class TestSubaruCameraAccBrake(unittest.TestCase):
     assert self._drive(ci, packer, parser, 100, 1, accel=-2.5, steps=300) == (ours, CarControllerParams.THROTTLE_MIN)
 
 
+class TestSubaruCameraSoftDisable(unittest.TestCase):
+  """The camera raises Cruise_Soft_Disable on braking it did not command, and the ECM cancels ACC
+  on it; a burst without the bit has the ECM drop cruise main and the camera latch a fault."""
+
+  def _interface(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Distance", 20)], 0)
+
+  def _distance(self, ci, packer, parser, soft_disable):
+    frames = [CanData(*packer.make_can_msg("ES_Distance", 2, {"Cruise_Soft_Disable": soft_disable, "Cruise_Fault": 1}))]
+    ci.update([(0, frames)])
+    CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+    sent = []
+    for _ in range(10):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if addr == 0x221 and bus == 0]
+    parser.update([(0, sent)])
+    return int(parser.vl["ES_Distance"]["Cruise_Soft_Disable"]), int(parser.vl["ES_Distance"]["Cruise_Fault"])
+
+  def test_the_cameras_soft_disable_rides_through_and_its_fault_does_not(self):
+    ci, packer, parser = self._interface()
+    self._distance(ci, packer, parser, 0)  # the parser drops the first frame after construction
+    assert self._distance(ci, packer, parser, 0) == (0, 0)
+    assert self._distance(ci, packer, parser, 1) == (1, 0)
+    assert self._distance(ci, packer, parser, 0) == (0, 0)
+
+
 class TestSubaruStopAndGoUnderLong(unittest.TestCase):
   def _sends(self, alpha_long):
     car = "SUBARU_FORESTER"
