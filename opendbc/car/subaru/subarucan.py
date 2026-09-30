@@ -26,7 +26,8 @@ def create_steering_status(packer):
   return packer.make_can_msg("ES_LKAS_State", 0, {})
 
 
-def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long_enabled = False, brake_cmd = False, cruise_throttle = 0):
+def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long_enabled = False, brake_cmd = False, cruise_throttle = 0,
+                       brake_lights = False):
   values = {s: es_distance_msg[s] for s in [
     "CHECKSUM",
     "Signal1",
@@ -54,9 +55,12 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
   if long_enabled:
     values["Cruise_Throttle"] = cruise_throttle
 
-    # The camera's soft disable stays: the ECM cancels ACC on it (the DBC comment), and a burst
-    # without it has the ECM drop cruise main 0.5 s later and the camera latch Cruise_Fault
-    # until the next ignition (subaru-long-aeb-passthrough.md).
+    # The camera's soft disable is carried while the brake lamps are lit: the ECM drops cruise main
+    # 0.5 s after lamps with no cancel in the burst, and the camera then latches Cruise_Fault until
+    # the next ignition. Without lamps the zeroed bit costs nothing, and the camera also raises it
+    # after a pull-away and when the car does not follow its throttle, each a cancel if carried
+    # (subaru-long-aeb-passthrough.md).
+    values["Cruise_Soft_Disable"] = int(es_distance_msg["Cruise_Soft_Disable"]) if brake_lights else 0
     values["Cruise_Fault"] = 0
 
     values["Cruise_Brake_Active"] = brake_cmd
