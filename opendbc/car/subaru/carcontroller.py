@@ -25,6 +25,7 @@ GRADE_FF_MAX = 1.5  # m/s^2
 # planner's own jerk budget, so it shapes nothing in normal driving and only catches
 # discontinuities such as the longActive rising edge.
 ACCEL_RATE_LIMIT = 4.0 * DT_CTRL  # m/s^2 per frame
+THROTTLE_STEP_FULL_AT = 0.3  # m/s^2 of request at which the whole launch step is in
 
 # The model drops a distant lead for a few tenths of a second at a time, which flickers the
 # cluster's lead icon. Dash only - the control path still sees the raw signal.
@@ -143,10 +144,12 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
         self.decel_req = accel < self.p.DECEL_REQ_ON
 
       accel_ff = accel + accel_grade
-      # Deceleration needs more counts per m/s^2 than acceleration, and unlike the up side it is
-      # not speed dependent.
-      thr_slope = thr_gain if accel_ff >= 0.0 else self.p.THROTTLE_DECEL_GAIN
-      thr_raw = thr_hold + accel_ff * thr_slope
+      if accel_ff >= 0.0:
+        step = float(np.interp(v_ego_ff, self.p.THROTTLE_STEP_BP, self.p.THROTTLE_STEP_V))
+        thr_raw = thr_hold + step * min(accel_ff / THROTTLE_STEP_FULL_AT, 1.0) + accel_ff * thr_gain
+      else:
+        floor_at = float(np.interp(v_ego_ff, self.p.THROTTLE_DECEL_FLOOR_BP, self.p.THROTTLE_DECEL_FLOOR_V))
+        thr_raw = thr_hold + accel_ff * (thr_hold - CarControllerParams.THROTTLE_MIN) / floor_at
       # Near a stop the hold table holds the car against its own brake, so close the throttle
       # rather than part-closing it. Ramped out by 3 m/s, where delivery is already correct.
       if self.decel_req:
