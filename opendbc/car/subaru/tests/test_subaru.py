@@ -119,10 +119,11 @@ class TestSubaruStockAeb(unittest.TestCase):
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
     return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
 
-  def _drive(self, ci, packer, aeb_status, pressure, pcb_off, lkas_alert=0):
-    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"AEB_Status": aeb_status, "Brake_Pressure": pressure})),
+  def _drive(self, ci, packer, aeb_status, pressure, pcb_off, lkas_alert=0, active=0, cruise=0):
+    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"AEB_Status": aeb_status, "Brake_Pressure": pressure, "Cruise_Brake_Active": active})),
               CanData(*packer.make_can_msg("ES_LKAS_State", 2, {"LKAS_Alert": lkas_alert})),
-              CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off}))]
+              CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off})),
+              CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": cruise}))]
     cs, _ = ci.update([(0, frames)])
     ci.CS.out.vEgo = 25.0
     CC = structs.CarControl(enabled=True, longActive=True).as_reader()
@@ -163,6 +164,14 @@ class TestSubaruStockAeb(unittest.TestCase):
     # pressure without the camera's active bit is not a command of any kind
     assert self._drive(ci, packer, 0, 346, 0)[1:] == (hold, 0, 0)
 
+  def test_the_precharge_after_the_warning_takes_the_drive_away_too(self):
+    # the camera's brake with the car's cruise off is its pre-collision pre-charge, which the panda forwards
+    ci, packer = self._interface()
+    self._drive(ci, packer, 0, 0, 0)
+    hold = int(round(np.interp(25.0, long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_BP"], long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_V"])))
+    assert self._drive(ci, packer, 0, 100, 0, active=1)[1:] == (808, 1, 0)
+    assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
+
 
 class TestSubaruCameraAccBrake(unittest.TestCase):
   """The camera's own ACC brakes behind a lead whenever ours does; a command of its own the car does
@@ -177,7 +186,8 @@ class TestSubaruCameraAccBrake(unittest.TestCase):
     return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
 
   def _drive(self, ci, packer, parser, pressure, active, accel=0.0, steps=10):
-    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Brake_Pressure": pressure, "Cruise_Brake_Active": active}))]
+    frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Brake_Pressure": pressure, "Cruise_Brake_Active": active})),
+              CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1}))]
     ci.update([(0, frames)])
     ci.CS.out.vEgo = 25.0
     CC = structs.CarControl(enabled=True, longActive=True, actuators=structs.CarControl.Actuators(accel=accel)).as_reader()
