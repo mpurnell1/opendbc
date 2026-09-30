@@ -56,9 +56,18 @@ _CROSSTREK_LONG: dict = {
   # throttle-above-hold against achieved accel over 46k engaged samples at the measured 0.60 s lag.
   "THROTTLE_GAIN_BP": [1.0, 3.0, 5.5,  8.0, 11.0, 15.5, 21.5],  # m/s
   "THROTTLE_GAIN_V": [400, 510, 550,  610,  800,  690,  690],
-  # The fit above used acceleration samples only and says nothing about the way down, so the
-  # decel side is a separate constant rather than inheriting the speed curve.
-  "THROTTLE_DECEL_GAIN": 1005,
+  # Stock steps its throttle the moment it starts accelerating and adds the slope on top: the
+  # intercepts of the gain fit, 170 to 450 counts up to 11 m/s on the Forester
+  # (subaru-forester-long-gains.md). Without it the loop pins at its 1.6 m/s^2 limit in a
+  # pull-away and the car delivers about 1.0.
+  "THROTTLE_STEP_BP": [0.0],  # m/s
+  "THROTTLE_STEP_V": [0],  # counts, reached once the request passes THROTTLE_STEP_FULL_AT
+  # Stock closes the throttle entirely for any deceleration below 8 m/s, and from 8 m/s up its cut
+  # reaches the engine-brake floor by -0.7 m/s^2 (subaru-forester-long-gains.md), so the cut is
+  # the span from hold to floor divided by this acceleration. A flat gain left 1000 to 1700
+  # counts open at highway speed and the brake made up the difference.
+  "THROTTLE_DECEL_FLOOR_BP": [5.0, 8.0, 11.0],  # m/s
+  "THROTTLE_DECEL_FLOOR_V": [0.15, 0.25, 0.7],  # m/s^2 at which the throttle reaches the floor
   # Fraction of the throttle-above-idle kept while a deceleration is requested. Below about 1 m/s
   # the hold table and the torque converter together drive the car forward against its own brake,
   # delivering 17% of the request. Ramped out entirely by 3 m/s, where delivery is already 83-85%.
@@ -373,9 +382,9 @@ class CAR(Platforms):
 # hold against the pitch-corrected acceleration it achieved 300 ms later, per speed band, from the
 # medians of 0.2 m/s^2 bins over 690k frames, and the coastdown from 98k free-rolling ones
 # (~/projects/docs/subaru-forester-long-gains.md).
-# Stock also steps its throttle by 170-480 counts the moment it starts accelerating, which a pure
-# gain cannot carry, and closes the throttle to 808 outright by -0.5 to -0.9 m/s^2 at every speed,
-# which the decel gain approximates. All four tables come from the same frames; swap them together.
+# Stock also steps its throttle by 170-480 counts the moment it starts accelerating (the step
+# table) and closes the throttle to 808 outright by -0.7 m/s^2 at every speed (the decel floor).
+# All the tables come from the same frames; swap them together.
 _FORESTER_LONG: dict = {
   **_CROSSTREK_LONG,
   "THROTTLE_HOLD_BP": [0.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0, 38.0],
@@ -384,7 +393,8 @@ _FORESTER_LONG: dict = {
   "RPM_HOLD_V": [600, 1066, 1095, 1116, 1152, 1169, 1193, 1264, 1334, 1456, 1611, 1677, 1788, 1982, 2156, 2326, 2452],
   "THROTTLE_GAIN_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
   "THROTTLE_GAIN_V": [480, 615, 600, 895, 650, 780],
-  "THROTTLE_DECEL_GAIN": 2000,
+  "THROTTLE_STEP_BP": [3.0, 5.5, 8.0, 11.0, 15.5],  # m/s
+  "THROTTLE_STEP_V": [173, 222, 447, 300, 0],
   "RPM_GAIN_UP_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
   "RPM_GAIN_UP_V": [210, 330, 450, 650, 1150, 1350],
   "RPM_GAIN_DOWN": 100,

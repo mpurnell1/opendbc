@@ -385,7 +385,7 @@ class TestSubaruLongHold(unittest.TestCase):
     return CarInterface(CP, CP_SP)
 
   FORESTER_MEASURED = {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V",
-                       "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_DECEL_GAIN",
+                       "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_STEP_BP", "THROTTLE_STEP_V",
                        "RPM_GAIN_UP_BP", "RPM_GAIN_UP_V", "RPM_GAIN_DOWN", "THR_DECEL_V"}
 
   def test_forester_has_its_own_measured_tables(self):
@@ -424,3 +424,54 @@ class TestSubaruLongHold(unittest.TestCase):
       tune = long_tune(car)
       assert thr == int(round(np.interp(v_ego, tune["THROTTLE_HOLD_BP"], tune["THROTTLE_HOLD_V"]))), (car, thr)
       assert rpm == int(round(np.interp(v_ego, tune["RPM_HOLD_BP"], tune["RPM_HOLD_V"]))), (car, rpm)
+
+
+class TestSubaruThrottleShapes(unittest.TestCase):
+  """Stock steps its throttle when it starts accelerating, and closes it entirely for a small
+  deceleration rather than part-closing it and braking for the rest."""
+
+  def _interface(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+
+  def _drive(self, ci, packer, parser, v, accel, steps=80):
+    frames = [CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1}))]
+    ci.update([(0, frames)])
+    ci.CS.out.vEgo = v
+    CC = structs.CarControl(enabled=True, longActive=True, actuators=structs.CarControl.Actuators(accel=accel)).as_reader()
+    sent = []
+    for _ in range(steps):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if addr in (0x220, 0x221) and bus == 0]
+    parser.update([(0, sent)])
+    return int(parser.vl["ES_Distance"]["Cruise_Throttle"]), int(parser.vl["ES_Brake"]["Brake_Pressure"])
+
+  def test_the_launch_step_rides_on_the_gain(self):
+    ci, packer, parser = self._interface()
+    tune = long_tune("SUBARU_FORESTER")
+    v = 4.0
+    hold = np.interp(v, tune["THROTTLE_HOLD_BP"], tune["THROTTLE_HOLD_V"])
+    gain = np.interp(v, tune["THROTTLE_GAIN_BP"], tune["THROTTLE_GAIN_V"])
+    step = np.interp(v, tune["THROTTLE_STEP_BP"], tune["THROTTLE_STEP_V"])
+    self._drive(ci, packer, parser, v, 0.0)
+    assert self._drive(ci, packer, parser, v, 1.0)[0] == int(round(hold + step + 1.0 * gain))
+    # the step comes in with the request, so a small one gets a share of it
+    assert self._drive(ci, packer, parser, v, 0.1)[0] == int(round(hold + step / 3 + 0.1 * gain))
+    assert self._drive(ci, packer, parser, v, 0.0)[0] == int(round(hold))
+
+  def test_small_decelerations_close_the_throttle_and_keep_the_brake_off(self):
+    ci, packer, parser = self._interface()
+    tune = long_tune("SUBARU_FORESTER")
+    v = 20.0
+    hold = np.interp(v, tune["THROTTLE_HOLD_BP"], tune["THROTTLE_HOLD_V"])
+    self._drive(ci, packer, parser, v, 0.0)
+    thr, brake = self._drive(ci, packer, parser, v, -0.5)
+    assert thr == int(round(hold - 0.5 / 0.7 * (hold - CarControllerParams.THROTTLE_MIN)))
+    assert brake == 0
+    assert self._drive(ci, packer, parser, v, -0.7)[0] == CarControllerParams.THROTTLE_MIN
+    # below 8 m/s any deceleration at all closes it, as stock does
+    assert self._drive(ci, packer, parser, 6.0, -0.2)[0] == CarControllerParams.THROTTLE_MIN
