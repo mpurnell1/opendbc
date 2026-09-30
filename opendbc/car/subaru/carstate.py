@@ -45,6 +45,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
 
     throttle_msg = cp.vl["Throttle"] if not (self.CP.flags & SubaruFlags.HYBRID) else cp_alt.vl["Throttle_Hybrid"]
     ret.gasPressed = throttle_msg["Throttle_Pedal"] > 1e-5
+    self.brake_lights = bool(cp.vl["Brake_Pedal"]["Brake_Lights"])
     if self.CP.flags & SubaruFlags.PREGLOBAL:
       ret.brakePressed = cp.vl["Brake_Pedal"]["Brake_Pedal"] > 0
     else:
