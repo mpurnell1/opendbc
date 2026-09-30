@@ -284,7 +284,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
 
           can_sends.append(subarucan.create_es_distance(self.packer, self.frame // 5, CS.es_distance_msg, bus, pcm_cancel_cmd,
                                                         self.CP.openpilotLongitudinalControl, cruise_brake > 0 or self.stock_aeb,
-                                                        cruise_throttle))
+                                                        cruise_throttle, CS.brake_lights))
       else:
         if pcm_cancel_cmd:
           if not (self.CP.flags & SubaruFlags.HYBRID):
