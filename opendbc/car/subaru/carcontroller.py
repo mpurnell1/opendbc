@@ -112,10 +112,12 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     cam_brake = 0
     cam_acc_braking = False
     if self.CP.openpilotLongitudinalControl:
+      cam_brake_active = bool(CS.es_brake_msg["Cruise_Brake_Active"])
       cam_aeb = CS.es_brake_msg["AEB_Status"] != 0 or CS.out.stockFcw or \
-                CS.es_lkas_state_msg["LKAS_Alert"] == 5 or CS.es_lkas_state_msg["LKAS_Alert_Msg"] == 6
+                CS.es_lkas_state_msg["LKAS_Alert"] == 5 or CS.es_lkas_state_msg["LKAS_Alert_Msg"] == 6 or \
+                (cam_brake_active and not CS.out.cruiseState.enabled)
       cam_brake = CS.es_brake_msg["Brake_Pressure"]
-      cam_acc_braking = bool(CS.es_brake_msg["Cruise_Brake_Active"]) and not cam_aeb
+      cam_acc_braking = cam_brake_active and not cam_aeb
       if self.stock_aeb:
         self.stock_aeb = cam_aeb or cam_brake > self.brake_last
       else:

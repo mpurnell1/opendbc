@@ -216,11 +216,11 @@ class TestSubaruLongitudinalSafetyBase(TestSubaruSafetyBase, common.Longitudinal
     values = {"Cruise_RPM": rpm}
     return self.packer.make_can_msg_safety("ES_Status", self.ALT_MAIN_BUS, values)
 
-  def _cam_brake_msg(self, aeb_status, brake):
+  def _cam_brake_msg(self, aeb_status, brake, active=0):
     # its own packer: the camera's counter sequence is independent of openpilot's ES_Brake
     if not hasattr(self, "cam_packer"):
       self.cam_packer = CANPackerSafety("subaru_global_2017_generated")
-    values = {"AEB_Status": aeb_status, "Brake_Pressure": brake}
+    values = {"AEB_Status": aeb_status, "Brake_Pressure": brake, "Cruise_Brake_Active": active}
     return self.cam_packer.make_can_msg_safety("ES_Brake", SUBARU_CAM_BUS, values)
 
 
@@ -350,11 +350,30 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
 
   def test_ordinary_camera_braking_is_not_forwarded(self):
     # the camera's own ACC braking carries no warning, whatever it asks for
-    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._rx(self._pcm_status_msg(True)))
     self.assertTrue(self._rx(self._cam_warning_msg()))
     for brake in (100, 346, 579):
-      self.assertTrue(self._rx(self._cam_brake_msg(0, brake)))
+      self.assertTrue(self._rx(self._cam_brake_msg(0, brake, active=1)))
       self.assertFalse(self._cam_brake_forwarded(), brake)
+
+  def test_precharge_with_cruise_off_is_forwarded(self):
+    """The camera's pre-charge can arrive after its warning has cleared, with AEB_Status still 0; with
+    the car's cruise off a brake of its own is pre-collision and opens the latch on the same terms."""
+    self.assertTrue(self._rx(self._pcm_status_msg(False)))
+    self.assertTrue(self._rx(self._cam_warning_msg()))
+    self.assertTrue(self._rx(self._cam_brake_msg(0, 100)))
+    self.assertFalse(self._cam_brake_forwarded())
+
+    self.assertTrue(self._rx(self._cam_brake_msg(0, 100, active=1)))
+    self.assertTrue(self._cam_brake_forwarded())
+    self.assertTrue(self._cam_status_forwarded())
+    self.assertTrue(self._cam_distance_forwarded())
+    self.assertFalse(self._tx(self._send_brake_msg(0)))
+
+    # released once it stops asking
+    self.assertTrue(self._rx(self._cam_brake_msg(0, 0)))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(0)))
 
   def test_no_aeb_claim(self):
     # only the camera claims AEB

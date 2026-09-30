@@ -126,10 +126,12 @@ static bool subaru_seen_brake_pedal(bool pressed) {
 // it asks no more, so the stronger request reaches the brake module at both edges and the writer
 // never chatters between. All three go together because the camera writes them as one burst on one
 // counter, and the car flags a brake and status on the camera's counter beside a distance frame on
-// openpilot's within half a second, after which the camera faults. An event is its AEB_Status or its
-// collision warning: in all six warning events in 78 h of logs the camera put 50 to 100 counts on
-// the wire, and the brake module acted on them, with AEB_Status still 0. Its ordinary ACC braking
-// carries no warning, so this does not hand that over.
+// openpilot's within half a second, after which the camera faults. An event is its AEB_Status, its
+// collision warning, or its brake while the car's cruise is off: in all six warning events in 78 h
+// of logs the camera put 50 to 100 counts on the wire, and the brake module acted on them, with
+// AEB_Status still 0, and its pre-charge can follow the warning by half a second with neither set.
+// Under openpilot longitudinal the camera's own ACC engages with the car's cruise, so a brake of
+// its own with cruise off is pre-collision, and its ordinary ACC braking is not handed over.
 static bool subaru_stock_aeb = false;
 static bool subaru_collision_warning = false;
 static int subaru_brake = 0;
@@ -199,9 +201,10 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
     subaru_brake_pedal_idx = (subaru_brake_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
   }
 
-  // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none
+  // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none; bit 38 is Cruise_Brake_Active
   if ((msg->addr == MSG_SUBARU_ES_Brake) && (msg->bus == SUBARU_CAM_BUS)) {
-    bool aeb_event = ((msg->data[4] & 0xFU) != 0U) || subaru_collision_warning;
+    bool cam_precharge = GET_BIT(msg, 38U) && !cruise_engaged_prev;
+    bool aeb_event = ((msg->data[4] & 0xFU) != 0U) || subaru_collision_warning || cam_precharge;
     int stock_brake = GET_BYTES(msg, 2, 2);
     if (subaru_stock_aeb) {
       subaru_stock_aeb = aeb_event || (stock_brake > subaru_brake);
