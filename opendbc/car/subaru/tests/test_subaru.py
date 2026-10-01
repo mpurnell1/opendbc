@@ -385,7 +385,7 @@ class TestSubaruLongHold(unittest.TestCase):
     return CarInterface(CP, CP_SP)
 
   FORESTER_MEASURED = {"THROTTLE_HOLD_BP", "THROTTLE_HOLD_V", "RPM_HOLD_BP", "RPM_HOLD_V",
-                       "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_STEP_BP", "THROTTLE_STEP_V",
+                       "THROTTLE_GAIN_BP", "THROTTLE_GAIN_V", "THROTTLE_STEP_BP", "THROTTLE_STEP_V", "ACCEL_MAX",
                        "RPM_GAIN_UP_BP", "RPM_GAIN_UP_V", "RPM_GAIN_DOWN", "THR_DECEL_V"}
 
   def test_forester_has_its_own_measured_tables(self):

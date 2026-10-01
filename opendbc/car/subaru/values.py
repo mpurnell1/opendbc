@@ -34,7 +34,8 @@ _CROSSTREK_LONG: dict = {
   # whole drive and never passed 1.43 in either railing band - it is already bounded by the
   # planner's own A_CRUISE_MAX_VALS, which peaks at 1.6. Matching that stops the per-car value
   # shadowing the shared envelope, and stays inside the throttle channel's own speed-dependent
-  # ceiling of 2.0 m/s^2 - see THROTTLE_MAX_BP / THROTTLE_MAX_V.
+  # ceiling of 2.0 m/s^2 - see THROTTLE_MAX_BP / THROTTLE_MAX_V. The Forester, whose tables
+  # deliver what is asked, runs at the ceiling itself.
   "ACCEL_MAX": 1.6,  # m/s^2
   # The count that yields 2.0 m/s^2 at each speed, which is the same curve the panda enforces in
   # SUBARU_MAX_GAS_LOOKUP (opendbc/safety/modes/subaru.h). A flat ceiling cannot bound acceleration
@@ -395,6 +396,10 @@ _FORESTER_LONG: dict = {
   "THROTTLE_GAIN_V": [480, 615, 600, 895, 650, 780],
   "THROTTLE_STEP_BP": [3.0, 5.5, 8.0, 11.0, 15.5],  # m/s
   "THROTTLE_STEP_V": [173, 222, 447, 300, 0],
+  # The shared envelope and the panda's gas ceiling, which Experimental mode asks for in a
+  # pull-away (the 1.6 above was matched to the cruise profile and pinned the loop while the
+  # car delivered 1.6 to 1.9: subaru-forester-long-gains.md). Stock pulls away at 2.2 to 2.4.
+  "ACCEL_MAX": 2.0,  # m/s^2
   "RPM_GAIN_UP_BP": [3.0, 5.5, 8.0, 11.0, 15.5, 21.5],  # m/s
   "RPM_GAIN_UP_V": [210, 330, 450, 650, 1150, 1350],
   "RPM_GAIN_DOWN": 100,
