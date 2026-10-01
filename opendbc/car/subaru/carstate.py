@@ -170,6 +170,8 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
       self.es_distance_msg = copy.copy(cp_es_distance.vl["ES_Distance"])
 
     self.es_dashstatus_msg = copy.copy(cp_cam.vl["ES_DashStatus"])
+    # The camera keeps the wheel rocker's follow-distance setting, 1 to 4, 0 with cruise main off
+    ret_sp.distanceBars = int(cp_cam.vl["ES_DashStatus"]["Cruise_Distance"])
     if self.CP.flags & SubaruFlags.SEND_INFOTAINMENT:
       self.es_infotainment_msg = copy.copy(cp_cam.vl["ES_Infotainment"])
 
