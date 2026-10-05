@@ -173,6 +173,33 @@ class TestSubaruStockAeb(unittest.TestCase):
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
 
 
+class TestSubaruCameraTemporaryStop(unittest.TestCase):
+  def _dash(self, ci, packer, parser, pcb_off, ldw_off, soft_disable):
+    frames = [CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off, "LDW_Off": ldw_off, "Cruise_Soft_Disable": soft_disable}))]
+    ci.update([(0, frames)])
+    CC = structs.CarControl(enabled=True, longActive=True).as_reader()
+    sent = []
+    for _ in range(10):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if (addr, bus) == (0x321, 0)]
+    parser.update([(0, sent)])
+    return tuple(int(parser.vl["ES_DashStatus"][s]) for s in ("PCB_Off", "LDW_Off", "Cruise_Soft_Disable"))
+
+  def test_the_cluster_gets_the_cameras_temporary_stop_whole(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    ci, packer = CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
+    parser = CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_DashStatus", 10)], 0)
+    self._dash(ci, packer, parser, 0, 0, 0)  # the parser drops the first frame after construction
+    assert self._dash(ci, packer, parser, 1, 1, 1) == (1, 1, 1)
+    # the camera's boot state and an ordinary cancel keep openpilot's own dash
+    assert self._dash(ci, packer, parser, 1, 1, 0) == (1, 0, 0)
+    assert self._dash(ci, packer, parser, 0, 0, 1) == (0, 0, 0)
+
+
 class TestSubaruCameraAccBrake(unittest.TestCase):
   """The camera's own ACC brakes behind a lead whenever ours does; a command of its own the car does
   not honour faults it once it moves on, so it is never given less than it asks for."""

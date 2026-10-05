@@ -206,7 +206,11 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
   if long_enabled:
     values["Car_Follow"] = int(lead_visible)
 
-    values["LDW_Off"] = 0
+    # PCB_Off, LDW_Off and Cruise_Soft_Disable set together are the camera's temporary stop: it
+    # cannot see and its AEB is off, so the cluster gets all three as the camera sent them.
+    temporary_stop = values["PCB_Off"] and values["LDW_Off"] and values["Cruise_Soft_Disable"]
+    if not temporary_stop:
+      values["LDW_Off"] = 0
     values["Cruise_Fault"] = 0
 
     if dash_indicators:
@@ -227,7 +231,8 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
 
       # Both latch: after ~5s the crossed-out EyeSight mark replaces the lead car and the
       # distance bars, which openpilot now owns.
-      values["Cruise_Soft_Disable"] = 0
+      if not temporary_stop:
+        values["Cruise_Soft_Disable"] = 0
       values["Cruise_Status_Msg"] = 0
     else:
       values["Cruise_State"] = 0
