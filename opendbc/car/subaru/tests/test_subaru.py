@@ -173,9 +173,10 @@ class TestSubaruStockAeb(unittest.TestCase):
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
 
 
-class TestSubaruCameraTemporaryStop(unittest.TestCase):
-  def _dash(self, ci, packer, parser, pcb_off, ldw_off, soft_disable):
-    frames = [CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off, "LDW_Off": ldw_off, "Cruise_Soft_Disable": soft_disable}))]
+class TestSubaruCameraOutage(unittest.TestCase):
+  def _dash(self, ci, packer, parser, pcb_off, ldw_off, soft_disable, fault=0):
+    frames = [CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off, "LDW_Off": ldw_off, "Cruise_Soft_Disable": soft_disable,
+                                                                "Cruise_Fault": fault}))]
     ci.update([(0, frames)])
     CC = structs.CarControl(enabled=True, longActive=True).as_reader()
     sent = []
@@ -183,9 +184,9 @@ class TestSubaruCameraTemporaryStop(unittest.TestCase):
       _, sends = ci.apply(CC, structs.CarControlSP(), 0)
       sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if (addr, bus) == (0x321, 0)]
     parser.update([(0, sent)])
-    return tuple(int(parser.vl["ES_DashStatus"][s]) for s in ("PCB_Off", "LDW_Off", "Cruise_Soft_Disable"))
+    return tuple(int(parser.vl["ES_DashStatus"][s]) for s in ("PCB_Off", "LDW_Off", "Cruise_Soft_Disable", "Cruise_Fault"))
 
-  def test_the_cluster_gets_the_cameras_temporary_stop_whole(self):
+  def test_the_cluster_gets_the_cameras_temporary_stop_and_its_fault_whole(self):
     car = "SUBARU_FORESTER"
     CarInterface = interfaces[car]
     fingerprints = dict.fromkeys(range(7), {})
@@ -194,10 +195,11 @@ class TestSubaruCameraTemporaryStop(unittest.TestCase):
     ci, packer = CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt])
     parser = CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_DashStatus", 10)], 0)
     self._dash(ci, packer, parser, 0, 0, 0)  # the parser drops the first frame after construction
-    assert self._dash(ci, packer, parser, 1, 1, 1) == (1, 1, 1)
+    assert self._dash(ci, packer, parser, 1, 1, 1) == (1, 1, 1, 0)
+    assert self._dash(ci, packer, parser, 1, 1, 0, fault=1) == (1, 1, 0, 1)
     # the camera's boot state and an ordinary cancel keep openpilot's own dash
-    assert self._dash(ci, packer, parser, 1, 1, 0) == (1, 0, 0)
-    assert self._dash(ci, packer, parser, 0, 0, 1) == (0, 0, 0)
+    assert self._dash(ci, packer, parser, 1, 1, 0) == (1, 0, 0, 0)
+    assert self._dash(ci, packer, parser, 0, 0, 1) == (0, 0, 0, 0)
 
 
 class TestSubaruCameraAccBrake(unittest.TestCase):
