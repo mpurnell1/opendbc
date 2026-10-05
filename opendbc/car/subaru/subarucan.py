@@ -206,12 +206,12 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
   if long_enabled:
     values["Car_Follow"] = int(lead_visible)
 
-    # PCB_Off, LDW_Off and Cruise_Soft_Disable set together are the camera's temporary stop: it
-    # cannot see and its AEB is off, so the cluster gets all three as the camera sent them.
+    # The camera's AEB is off in both of its outages, so the cluster gets them as the camera sent
+    # them: PCB_Off, LDW_Off and Cruise_Soft_Disable set together are its temporary stop (it cannot
+    # see), and Cruise_Fault with the first two is latched until the next ignition.
     temporary_stop = values["PCB_Off"] and values["LDW_Off"] and values["Cruise_Soft_Disable"]
-    if not temporary_stop:
+    if not (temporary_stop or values["Cruise_Fault"]):
       values["LDW_Off"] = 0
-    values["Cruise_Fault"] = 0
 
     if dash_indicators:
       # Bitfield: bit0 is HOLD. 3 would add READY, which the cluster renders as "Ready Hold".
