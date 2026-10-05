@@ -50,6 +50,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     self.brake_last = 0
     self.throttle_last = CarControllerParams.THROTTLE_INACTIVE
     self.stock_aeb = False
+    self.leaving_hold = False
     self.lead_hold = 0
     self.braking = False
     self.decel_req = False
@@ -212,8 +213,13 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
       # The camera's own ACC brakes behind a lead whenever ours does, and a brake command of its
       # own the car does not honour faults it once it moves on (452 asked, 299 given, fault at the
       # stop: subaru-long-aeb-passthrough.md), so it is never given less than it asks for. The
-      # panda cannot verify a copy, hence its cap.
-      mirror_cam = cam_acc_braking and cam_brake > cruise_brake
+      # panda cannot verify a copy, hence its cap. Its standstill hold is the exception: it lets go
+      # only for the gas tap (camera_copies.py), and the tap waits for openpilot's own brake to be off.
+      if CS.out.standstill and cruise_brake == 0 and cruise_throttle > CarControllerParams.THROTTLE_INACTIVE:
+        self.leaving_hold = True
+      elif not cam_acc_braking or cruise_brake > 0:
+        self.leaving_hold = False
+      mirror_cam = cam_acc_braking and cam_brake > cruise_brake and not self.leaving_hold
       if mirror_cam:
         cruise_brake = min(int(cam_brake), CarControllerParams.BRAKE_MAX)
         self.braking = True
@@ -226,6 +232,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     else:
       self.accel_last = 0.0
       self.braking = False
+      self.leaving_hold = False
       self.decel_req = False
       self.crawl_floor = 0.0
       self.rpm_last = None      # so the slew limit starts from the hold value, not a stale command
