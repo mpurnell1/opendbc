@@ -292,9 +292,12 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
           self.brake_last = cruise_brake
           self.throttle_last = cruise_throttle
 
+          # PCB_Off, LDW_Off and Cruise_Soft_Disable together on the camera's own ES_DashStatus is its temporary stop
+          camera_stopped = bool(CS.es_dashstatus_msg["PCB_Off"] and CS.es_dashstatus_msg["LDW_Off"] and
+                                CS.es_dashstatus_msg["Cruise_Soft_Disable"])
           can_sends.append(subarucan.create_es_distance(self.packer, self.frame // 5, CS.es_distance_msg, bus, pcm_cancel_cmd,
                                                         self.CP.openpilotLongitudinalControl, cruise_brake > 0 or self.stock_aeb,
-                                                        cruise_throttle, CS.brake_lights))
+                                                        cruise_throttle, CS.brake_lights, camera_stopped))
       else:
         if pcm_cancel_cmd:
           if not (self.CP.flags & SubaruFlags.HYBRID):

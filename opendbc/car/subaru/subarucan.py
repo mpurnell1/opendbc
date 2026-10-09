@@ -27,7 +27,7 @@ def create_steering_status(packer):
 
 
 def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long_enabled = False, brake_cmd = False, cruise_throttle = 0,
-                       brake_lights = False):
+                       brake_lights = False, camera_stopped = False):
   values = {s: es_distance_msg[s] for s in [
     "CHECKSUM",
     "Signal1",
@@ -59,8 +59,11 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
     # 0.5 s after lamps with no cancel in the burst, and the camera then latches Cruise_Fault until
     # the next ignition. Without lamps the zeroed bit costs nothing, and the camera also raises it
     # after a pull-away and when the car does not follow its throttle, each a cancel if carried
-    # (subaru-long-aeb-passthrough.md).
-    values["Cruise_Soft_Disable"] = int(es_distance_msg["Cruise_Soft_Disable"]) if brake_lights else 0
+    # (subaru-long-aeb-passthrough.md). Once the camera has stopped itself or latched Cruise_Fault
+    # the bit is that state, not a cancel: the car does not drop main on lamps alone then, and
+    # carrying it cancels every lamp-lit brake for the rest of the outage.
+    camera_active = not (camera_stopped or es_distance_msg["Cruise_Fault"])
+    values["Cruise_Soft_Disable"] = int(es_distance_msg["Cruise_Soft_Disable"]) if brake_lights and camera_active else 0
     values["Cruise_Fault"] = 0
 
     values["Cruise_Brake_Active"] = brake_cmd

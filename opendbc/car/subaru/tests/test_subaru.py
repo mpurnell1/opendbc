@@ -273,8 +273,9 @@ class TestSubaruCameraSoftDisable(unittest.TestCase):
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
     return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Distance", 20)], 0)
 
-  def _distance(self, ci, packer, parser, soft_disable, lights=0):
-    frames = [CanData(*packer.make_can_msg("ES_Distance", 2, {"Cruise_Soft_Disable": soft_disable, "Cruise_Fault": 1})),
+  def _distance(self, ci, packer, parser, soft_disable, lights=0, fault=0, stopped=0):
+    frames = [CanData(*packer.make_can_msg("ES_Distance", 2, {"Cruise_Soft_Disable": soft_disable, "Cruise_Fault": fault})),
+              CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": stopped, "LDW_Off": stopped, "Cruise_Soft_Disable": stopped})),
               CanData(*packer.make_can_msg("Brake_Pedal", 0, {"Brake_Lights": lights}))]
     ci.update([(0, frames)])
     CC = structs.CarControl(enabled=True, longActive=True).as_reader()
@@ -294,6 +295,15 @@ class TestSubaruCameraSoftDisable(unittest.TestCase):
     # without lamps the ECM keeps main whatever the bit says, and the camera raises it after
     # pull-aways and on throttle the car does not follow, so it stays zeroed as upstream has it
     assert self._distance(ci, packer, parser, 1, lights=0) == (0, 0)
+
+  def test_a_stopped_or_faulted_camera_holds_the_bit_and_it_stays_zeroed(self):
+    # the car does not drop main on lamps alone once the camera has stopped itself or latched its
+    # fault, and carrying the held bit would cancel every lamp-lit brake until it clears
+    ci, packer, parser = self._interface()
+    self._distance(ci, packer, parser, 0)
+    assert self._distance(ci, packer, parser, 1, lights=1, stopped=1) == (0, 0)
+    assert self._distance(ci, packer, parser, 1, lights=1, fault=1) == (0, 0)
+    assert self._distance(ci, packer, parser, 1, lights=1) == (1, 0)
 
 
 class TestSubaruStopAndGoUnderLong(unittest.TestCase):
