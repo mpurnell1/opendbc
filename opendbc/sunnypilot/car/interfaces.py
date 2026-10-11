@@ -183,7 +183,7 @@ def _initialize_stop_and_go(CP: structs.CarParams, CP_SP: structs.CarParamsSP, p
     # The camera faults about half a second after the car's brake echo or cruise throttle stops
     # matching its own ACC command, taking PCB and LDW with it; under openpilot longitudinal it gets
     # copies carrying the response its command expects (see camera_copies.py)
-    if CP.openpilotLongitudinalControl and int(params_dict.get("SubaruCameraEcho", 0)) == 1:
+    if CP.openpilotLongitudinalControl:
       CP_SP.flags |= SubaruFlagsSP.CAMERA_ECHO.value
       CP_SP.safetyParam |= SubaruSafetyFlagsSP.CAMERA_ECHO
 
