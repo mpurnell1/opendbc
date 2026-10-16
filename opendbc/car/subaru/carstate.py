@@ -19,10 +19,14 @@ from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarState
 # releases. A hold of 120 clears the module's 72 by enough that no recorded fault survived it.
 # Reporting the cut as a fault zeroes torque in the frame the request drops, which keeps every
 # frame valid to the panda; a request drop with torque up is rationed and can latch Steer_Error_1.
+# Through a cut an empty wheel reads under 30 and a steering hand 40 to 80, and a handback to a
+# held wheel winds the torque controller up against the hand until the release rings the rack
+# (sunnypilot notes/lateral-oscillation.md), so the restore waits for the hand to come off.
 HIGH_ANGLE_CUT_DEG = 88
 HIGH_ANGLE_RESTORE_DEG = 84
 HIGH_ANGLE_GATE_SPEED_KPH = 50
 HIGH_ANGLE_HANDS_ON_TORQUE = 120
+HIGH_ANGLE_HELD_TORQUE = 40
 
 
 class CarState(CarStateBase, MadsCarState, SnGCarState):
@@ -140,7 +144,7 @@ class CarState(CarStateBase, MadsCarState, SnGCarState):
         hands_on = abs(ret.steeringTorque) >= HIGH_ANGLE_HANDS_ON_TORQUE
         if gate_armed and gate_angle >= HIGH_ANGLE_CUT_DEG and not hands_on:
           self.high_angle_cut = True
-        elif gate_angle < HIGH_ANGLE_RESTORE_DEG or not gate_armed:
+        elif (gate_angle < HIGH_ANGLE_RESTORE_DEG and abs(ret.steeringTorque) <= HIGH_ANGLE_HELD_TORQUE) or not gate_armed:
           self.high_angle_cut = False
       ret.steerFaultTemporary = cp.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.high_angle_cut
       ret.cruiseState.nonAdaptive = cp_cam.vl["ES_DashStatus"]["Conventional_Cruise"] == 1

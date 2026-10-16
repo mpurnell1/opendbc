@@ -4,7 +4,8 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import interfaces
-from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_RESTORE_DEG
+from opendbc.car.subaru.carstate import HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_GATE_SPEED_KPH, HIGH_ANGLE_HANDS_ON_TORQUE, HIGH_ANGLE_HELD_TORQUE, \
+  HIGH_ANGLE_RESTORE_DEG
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.subaru.values import DBC, SubaruFlags
 
@@ -84,7 +85,21 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
     assert self._step(ci, packer, cut + 80, torque=HIGH_ANGLE_HANDS_ON_TORQUE - 10)
     assert self._step(ci, packer, cut + 80, torque=hands_on)
     assert self._step(ci, packer, restore + 1, torque=hands_on)
-    assert not self._step(ci, packer, restore - 1, torque=hands_on)
+    assert self._step(ci, packer, restore - 1, torque=hands_on)
+    assert not self._step(ci, packer, restore - 1, torque=0)
+
+  def test_handback_waits_for_the_hand_to_come_off(self):
+    ci, packer = self._interface("SUBARU_FORESTER")
+    cut, restore, held = HIGH_ANGLE_CUT_DEG, HIGH_ANGLE_RESTORE_DEG, HIGH_ANGLE_HELD_TORQUE + 1
+    assert self._step(ci, packer, cut + 80)
+    # the driver unwinds the wheel and parks it inside the band: still cut while the hand is on
+    for angle in (restore - 1, restore - 20, restore - 20):
+      assert self._step(ci, packer, angle, torque=held), angle
+    assert self._step(ci, packer, restore - 20, torque=-held)
+    assert not self._step(ci, packer, restore - 20, torque=HIGH_ANGLE_HELD_TORQUE)
+    # an empty wheel is handed back the frame the angle clears the band
+    assert self._step(ci, packer, cut + 80)
+    assert not self._step(ci, packer, restore - 1, torque=HIGH_ANGLE_HELD_TORQUE - 20)
 
   def test_reads_the_vdc_angle(self):
     ci, packer = self._interface("SUBARU_FORESTER")
