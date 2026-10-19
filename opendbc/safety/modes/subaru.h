@@ -280,7 +280,7 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
   // check es_brake brake_pressure limits
   if (msg->addr == MSG_SUBARU_ES_Brake) {
-    int es_brake_pressure = GET_BYTES(msg, 2, 2);
+    int es_brake_pressure = GET_BYTES_LE(msg, 2, 2);
     subaru_brake = es_brake_pressure;
     violation |= longitudinal_brake_checks(es_brake_pressure, SUBARU_LONG_LIMITS);
     // only the camera claims AEB, and while it does its frame is on the bus instead
@@ -307,7 +307,7 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
   // check es_status transmission_rpm limits
   if (msg->addr == MSG_SUBARU_ES_Status) {
-    int transmission_rpm = (GET_BYTES(msg, 2, 2) & 0x1FFFU);
+    int transmission_rpm = (GET_BYTES_LE(msg, 2, 2) & 0x1FFFU);
     violation |= longitudinal_transmission_rpm_checks(transmission_rpm, SUBARU_LONG_LIMITS);
     violation |= subaru_stock_aeb;
   }
@@ -327,10 +327,10 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
   if (msg->addr == MSG_SUBARU_ES_UDS_Request) {
     // tester present ('\x02\x3E\x80\x00\x00\x00\x00\x00') is allowed for gen2 longitudinal to keep eyesight disabled
-    bool is_tester_present = (GET_BYTES(msg, 0, 4) == 0x00803E02U) && (GET_BYTES(msg, 4, 4) == 0x0U);
+    bool is_tester_present = (GET_BYTES_LE(msg, 0, 4) == 0x00803E02U) && (GET_BYTES_LE(msg, 4, 4) == 0x0U);
 
     // reading ES button data by identifier (b'\x03\x22\x11\x30\x00\x00\x00\x00') is also allowed (DID 0x1130)
-    bool is_button_rdbi = (GET_BYTES(msg, 0, 4) == 0x30112203U) && (GET_BYTES(msg, 4, 4) == 0x0U);
+    bool is_button_rdbi = (GET_BYTES_LE(msg, 0, 4) == 0x30112203U) && (GET_BYTES_LE(msg, 4, 4) == 0x0U);
 
     violation |= !(is_tester_present || is_button_rdbi);
   }
