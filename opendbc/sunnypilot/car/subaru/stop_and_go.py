@@ -123,7 +123,11 @@ class SnGCarState:
     cp = can_parsers[Bus.pt]
 
     self.brake_pedal_msg = copy.copy(cp.vl["Brake_Pedal"])
-    self.brake_status_msg = copy.copy(cp.vl["Brake_Status"])
+    # only the camera copies echo Brake_Status, under openpilot longitudinal on global gen1, where it
+    # rides the main bus; the parser adds a message on first read and stays invalid until one arrives,
+    # so gen2 (alt bus) and pre-global (no such message) must never ask for it here
+    if self.CP.openpilotLongitudinalControl:
+      self.brake_status_msg = copy.copy(cp.vl["Brake_Status"])
 
     if not self.CP.flags & SubaruFlags.HYBRID:
       self.throttle_msg = copy.copy(cp.vl["Throttle"])
