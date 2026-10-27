@@ -235,7 +235,7 @@ class SubaruFlags(IntFlag):
   # the camera. Global gen1 shares the cluster vocabulary, so all four platforms set it. A
   # per-platform flag rather than a gen1 test, so a car whose cluster renders a value differently
   # can be dropped on its own.
-  DASH_INDICATORS = 128
+  DASH_INDICATORS = 256
 
 
 GLOBAL_ES_ADDR = 0x787

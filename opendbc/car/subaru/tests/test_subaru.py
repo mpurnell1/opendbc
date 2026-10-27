@@ -21,6 +21,23 @@ class TestSubaruFingerprint(unittest.TestCase):
           assert len(fw) == fw_size, f"{platform} {ecu}: {len(fw)} {fw_size}"
 
 
+class TestSubaruFlags(unittest.TestCase):
+  def test_flags_are_distinct(self):
+    # IntFlag silently aliases a reused value, so a static flag can switch on a detected one
+    values = [f.value for f in SubaruFlags.__members__.values()]
+    assert len(values) == len(set(values)), SubaruFlags.__members__
+
+  def test_bsm_only_when_detected(self):
+    CarInterface = interfaces["SUBARU_FORESTER"]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params("SUBARU_FORESTER", fingerprints, [], alpha_long=False, is_release=False, docs=False)
+    assert CP.flags & SubaruFlags.DASH_INDICATORS
+    assert not CP.flags & SubaruFlags.HAS_BSM
+    fingerprints = {**fingerprints, 0: {0x228: 8}}
+    CP = CarInterface.get_params("SUBARU_FORESTER", fingerprints, [], alpha_long=False, is_release=False, docs=False)
+    assert CP.flags & SubaruFlags.HAS_BSM
+
+
 class TestSubaruHighAngleGuard(unittest.TestCase):
   def _interface(self, car):
     CarInterface = interfaces[car]
