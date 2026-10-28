@@ -80,12 +80,11 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     accel_grade = float(np.clip(GRADE_FF_GAIN * math.sin(self.pitch.x) * ACCELERATION_DUE_TO_GRAVITY,
                                 -GRADE_FF_MAX, GRADE_FF_MAX))
 
-    dash_indicators = bool(self.CP.flags & SubaruFlags.DASH_INDICATORS)
     if hud_control.leadVisible:
       self.lead_hold = LEAD_HOLD_FRAMES
     elif self.lead_hold > 0:
       self.lead_hold -= 1
-    lead_visible = hud_control.leadVisible or (dash_indicators and self.lead_hold > 0)
+    lead_visible = hud_control.leadVisible or (self.CP.openpilotLongitudinalControl and self.lead_hold > 0)
 
     # *** steering ***
     if (self.frame % self.p.STEER_STEP) == 0:
@@ -288,11 +287,11 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
       if self.frame % 10 == 0:
         can_sends.append(subarucan.create_es_dashstatus(self.packer, self.frame // 10, CS.es_dashstatus_msg,
                                                         CC.enabled, self.CP.openpilotLongitudinalControl, CC.longActive,
-                                                        dash_indicators, lead_visible, hud_control.leadDistanceBars,
+                                                        lead_visible, hud_control.leadDistanceBars,
                                                         self.brake_lamp, CS.out.brakePressed, CS.out.standstill))
 
         can_sends.append(subarucan.create_es_lkas_state(self.packer, self.frame // 10, CS.es_lkas_state_msg, CC.enabled, CC.latActive,
-                                                        CS.out.cruiseState.available, dash_indicators,
+                                                        CS.out.cruiseState.available,
                                                         self.CP.openpilotLongitudinalControl, CC.longActive,
                                                         CS.out.standstill, hud_control.visualAlert,
                                                         hud_control.leftLaneVisible, hud_control.rightLaneVisible,
