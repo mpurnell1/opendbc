@@ -75,7 +75,7 @@ def create_es_distance(packer, frame, es_distance_msg, bus, pcm_cancel_cmd, long
   return packer.make_can_msg("ES_Distance", bus, values)
 
 
-def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, cruise_available, dash_indicators,
+def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, cruise_available,
                          long_enabled, long_active, standstill, visual_alert, left_line, right_line,
                          left_lane_depart, right_lane_depart):
   values = {s: es_lkas_state_msg[s] for s in [
@@ -146,18 +146,18 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
 
   # Obstacle Detected, flashing red with repeated beeps. After the ldw branch so a collision
   # warning wins, and on the cluster because ES_Infotainment only reaches the head unit.
-  if dash_indicators and visual_alert == VisualAlert.fcw:
+  if long_enabled and visual_alert == VisualAlert.fcw:
     values["LKAS_Alert"] = 2
 
   if enabled:
     values["LKAS_ACTIVE"] = 1  # Show LKAS lane lines
-    if dash_indicators:
+    if long_enabled:
       # The cluster draws no line at all unless Enable is set, and stock holds it at 0 the whole
       # time openpilot is steering, so the colour below never reaches the screen without this.
       values["LKAS_Left_Line_Enable"] = 1
       values["LKAS_Right_Line_Enable"] = 1
 
-  if dash_indicators:
+  if long_enabled:
     # 2 = green, 1 = white, 0 = off. White whenever cruise is available but openpilot is not
     # steering, mirroring Cruise_Disengaged_Dash, so the two indicators agree.
     values["LKAS_Dash_State"] = 2 if lat_active else 1 if cruise_available else 0
@@ -173,7 +173,7 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
   return packer.make_can_msg("ES_LKAS_State", CanBus.main, values)
 
 
-def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, long_active, dash_indicators,
+def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, long_active,
                          lead_visible, distance_bars, brake_lamp, brake_pressed, standstill):
   values = {s: dashstatus_msg[s] for s in [
     "CHECKSUM",
@@ -216,7 +216,7 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
     if not (temporary_stop or values["Cruise_Fault"]):
       values["LDW_Off"] = 0
 
-    if dash_indicators:
+    if long_enabled:
       # Bitfield: bit0 is HOLD. 3 would add READY, which the cluster renders as "Ready Hold".
       values["Cruise_State"] = 1 if (long_active and standstill) else 0
       # Green while openpilot has the gas and brakes, white whenever cruise main is on but it

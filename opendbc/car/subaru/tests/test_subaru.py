@@ -32,7 +32,6 @@ class TestSubaruFlags(unittest.TestCase):
     CarInterface = interfaces["SUBARU_FORESTER"]
     fingerprints = dict.fromkeys(range(7), {})
     CP = CarInterface.get_params("SUBARU_FORESTER", fingerprints, [], alpha_long=False, is_release=False, docs=False)
-    assert CP.flags & SubaruFlags.DASH_INDICATORS
     assert not CP.flags & SubaruFlags.HAS_BSM
     fingerprints = {**fingerprints, 0: {0x228: 8}}
     CP = CarInterface.get_params("SUBARU_FORESTER", fingerprints, [], alpha_long=False, is_release=False, docs=False)
