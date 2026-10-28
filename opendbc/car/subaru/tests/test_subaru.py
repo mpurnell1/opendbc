@@ -9,6 +9,7 @@ from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car import structs
 from opendbc.car.subaru.values import DBC, LONG_TUNE, CarControllerParams, SubaruFlags, long_tune
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 import numpy as np
 
 
@@ -169,6 +170,14 @@ class TestSubaruStockAeb(unittest.TestCase):
       assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0), aeb_status
     assert self._drive(ci, packer, 8, 300, 1) == (True, 808, 1, 1)
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
+
+  def test_the_latch_stays_shut_under_disable_stock_aeb(self):
+    ci, packer = self._interface()
+    ci.CP.alternativeExperience = ALTERNATIVE_EXPERIENCE.DISABLE_STOCK_AEB
+    self._drive(ci, packer, 0, 0, 0)
+    hold = int(round(np.interp(25.0, long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_BP"], long_tune("SUBARU_FORESTER")["THROTTLE_HOLD_V"])))
+    for aeb_status in (8, 4, 12):
+      assert self._drive(ci, packer, aeb_status, 300, 0)[1:] == (hold, 0, 0), aeb_status
 
   def test_the_collision_warning_takes_the_drive_away_too(self):
     # the camera brakes during its warning stage with AEB_Status still 0, and the panda forwards it

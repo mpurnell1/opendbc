@@ -449,6 +449,40 @@ class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafet
 
 
 
+class TestSubaruGen1LongitudinalStockAebOffSafety(TestSubaruGen1LongitudinalCameraEchoSafety):
+  """ALT_EXP_DISABLE_STOCK_AEB: the camera's ES burst stays openpilot's through its AEB claim, its warning and
+  its pre-charge, as stock openpilot does."""
+
+  def setUp(self):
+    super().setUp()
+    self.safety.set_alternative_experience(common.ALTERNATIVE_EXPERIENCE.DISABLE_STOCK_AEB)
+
+  def _burst_stays_ours(self, cam_frames):
+    self.safety.set_controls_allowed(True)
+    for frame in cam_frames:
+      self.assertTrue(self._rx(frame))
+    self.assertFalse(self._cam_brake_forwarded())
+    self.assertFalse(self._cam_status_forwarded())
+    self.assertFalse(self._cam_distance_forwarded())
+    self.assertTrue(self._tx(self._send_brake_msg(100)))
+    self.assertTrue(self._tx(self._send_rpm_msg(1000)))
+    self.assertTrue(self._tx(self._send_gas_msg(self.INACTIVE_GAS + 1)))
+
+  def test_stock_aeb_passthrough(self):
+    for aeb_status in (8, 4, 12):
+      with self.subTest(aeb_status=aeb_status):
+        self._burst_stays_ours([self._cam_brake_msg(aeb_status, 300)])
+
+  def test_collision_warning_forwards_the_precharge(self):
+    for alert, alert_msg in ((1, 0), (2, 0), (5, 0), (0, 6)):
+      with self.subTest(alert=alert, alert_msg=alert_msg):
+        self._burst_stays_ours([self._cam_warning_msg(alert, alert_msg), self._cam_brake_msg(0, 100)])
+
+  def test_precharge_with_cruise_off_is_forwarded(self):
+    self.assertTrue(self._rx(self._pcm_status_msg(False)))
+    self._burst_stays_ours([self._cam_brake_msg(0, 100, active=1)])
+
+
 class TestSubaruGen2LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSubaruGen2TorqueSafetyBase):
   SAFETY_PARAM = SubaruSafetyFlags.LONG | SubaruSafetyFlags.GEN2
   TX_MSGS = lkas_tx_msgs(SUBARU_ALT_BUS) + long_tx_msgs(SUBARU_ALT_BUS) + gen2_long_additional_tx_msgs()
