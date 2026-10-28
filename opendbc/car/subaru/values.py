@@ -199,7 +199,15 @@ class CarControllerParams:
 
   BRAKE_MIN = 0
   BRAKE_MAX = 600  # about -3.5m/s2 from testing
-  BRAKE_LIGHTS_THRESHOLD = 70  # brake command at which the lamps, and the cluster's drawing of them, light
+  # The lamps, and the cluster's drawing of them, follow the camera's rule, so a brake hovering near one
+  # count cannot flash them; above a crawl the camera keeps them dark while its braking barely slows the
+  # car, as when holding speed downhill.
+  BRAKE_LAMP_ON = 80
+  BRAKE_LAMP_OFF = 20
+  BRAKE_LAMP_DELAY = 0.4  # s
+  BRAKE_LAMP_DECEL_ON = -0.7  # m/s^2 of aEgo to light them
+  BRAKE_LAMP_DECEL_OFF = -0.4  # m/s^2 to keep them lit
+  BRAKE_LAMP_DECEL_V = (5.0, 6.0)  # m/s, below which the counts alone decide; a band so a speed held near it cannot flicker them
 
   RPM_MIN = 0
   RPM_MAX = 3600

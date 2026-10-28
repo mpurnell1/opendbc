@@ -190,6 +190,43 @@ class TestSubaruStockAeb(unittest.TestCase):
     assert self._drive(ci, packer, 0, 0, 0) == (False, hold, 0, 0)
 
 
+class TestSubaruBrakeLamps(unittest.TestCase):
+  """The lamps follow the camera's rule: a brake held past the delay lights them, and above a crawl only
+  while the car is actually slowing."""
+
+  def _interface(self):
+    car = "SUBARU_FORESTER"
+    CarInterface = interfaces[car]
+    fingerprints = dict.fromkeys(range(7), {})
+    CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
+    CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20)], 0)
+
+  def _drive(self, ci, packer, parser, v, a_ego, accel, steps):
+    frames = [CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1}))]
+    ci.update([(0, frames)])
+    ci.CS.out.vEgo, ci.CS.out.aEgo = v, a_ego
+    CC = structs.CarControl(enabled=True, longActive=True, actuators=structs.CarControl.Actuators(accel=accel)).as_reader()
+    sent = []
+    for _ in range(steps):
+      _, sends = ci.apply(CC, structs.CarControlSP(), 0)
+      sent += [CanData(addr, dat, 0) for addr, dat, bus in sends if addr == 0x220 and bus == 0]
+    parser.update([(0, sent)])
+    return int(parser.vl["ES_Brake"]["Brake_Pressure"]), bool(parser.vl["ES_Brake"]["Cruise_Brake_Lights"])
+
+  def test_lamps_light_on_a_held_brake_while_slowing(self):
+    ci, packer, parser = self._interface()
+    v = 20.0
+    self._drive(ci, packer, parser, v, 0.0, 0.0, 80)
+    brake, lamp = self._drive(ci, packer, parser, v, -1.5, -2.0, 30)
+    assert brake >= CarControllerParams.BRAKE_LAMP_ON and not lamp
+    assert self._drive(ci, packer, parser, v, -1.5, -2.0, 60)[1]
+    # holding speed downhill: braking, but the car is not slowing
+    assert not self._drive(ci, packer, parser, v, 0.0, -2.0, 60)[1]
+    # at a crawl the counts alone decide
+    assert self._drive(ci, packer, parser, 2.0, 0.0, -2.0, 60)[1]
+
+
 class TestSubaruCameraOutage(unittest.TestCase):
   def _dash(self, ci, packer, parser, pcb_off, ldw_off, soft_disable, fault=0):
     frames = [CanData(*packer.make_can_msg("ES_DashStatus", 2, {"PCB_Off": pcb_off, "LDW_Off": ldw_off, "Cruise_Soft_Disable": soft_disable,

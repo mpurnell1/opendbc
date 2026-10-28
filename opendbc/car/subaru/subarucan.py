@@ -1,5 +1,5 @@
 from opendbc.car import structs
-from opendbc.car.subaru.values import CanBus, CarControllerParams
+from opendbc.car.subaru.values import CanBus
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 
@@ -174,7 +174,7 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
 
 
 def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, long_active, dash_indicators,
-                         lead_visible, distance_bars, brake_value, brake_pressed, standstill):
+                         lead_visible, distance_bars, brake_lamp, brake_pressed, standstill):
   values = {s: dashstatus_msg[s] for s in [
     "CHECKSUM",
     "PCB_Off",
@@ -229,8 +229,7 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
 
       # Draws the brake lights on the car image, on both the cluster and the MFD. Stock only
       # reports the driver's own braking about two thirds of the time, so OR it in directly.
-      values["Brake_Lights"] = int(values["Brake_Lights"] or brake_pressed or
-                                   brake_value >= CarControllerParams.BRAKE_LIGHTS_THRESHOLD)
+      values["Brake_Lights"] = int(values["Brake_Lights"] or brake_pressed or brake_lamp)
 
       # Both latch: after ~5s the crossed-out EyeSight mark replaces the lead car and the
       # distance bars, which openpilot now owns.
@@ -250,7 +249,7 @@ def create_es_dashstatus(packer, frame, dashstatus_msg, enabled, long_enabled, l
   return packer.make_can_msg("ES_DashStatus", CanBus.main, values)
 
 
-def create_es_brake(packer, frame, es_brake_msg, bus, long_enabled, long_active, brake_value):
+def create_es_brake(packer, frame, es_brake_msg, bus, long_enabled, long_active, brake_value, brake_lamp):
   values = {s: es_brake_msg[s] for s in [
     "CHECKSUM",
     "Signal1",
@@ -275,7 +274,7 @@ def create_es_brake(packer, frame, es_brake_msg, bus, long_enabled, long_active,
     values["Brake_Pressure"] = brake_value
 
     values["Cruise_Brake_Active"] = brake_value > 0
-    values["Cruise_Brake_Lights"] = brake_value >= CarControllerParams.BRAKE_LIGHTS_THRESHOLD
+    values["Cruise_Brake_Lights"] = brake_lamp
 
   return packer.make_can_msg("ES_Brake", bus, values)
 
