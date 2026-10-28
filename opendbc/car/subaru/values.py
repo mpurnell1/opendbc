@@ -16,7 +16,7 @@ Ecu = CarParams.Ecu
 # properties - mass, CVT calibration, aero, torque-converter creep - so they do NOT transfer
 # between models: an Ascent is some 600 kg heavier than a Crosstrek and will want its own tables.
 # Each supported platform gets its own copy, and the copies start identical, so a model can be
-# retuned from tester data in isolation without disturbing the one that is known good.
+# tuned again from tester data in isolation without disturbing the one that is known good.
 #
 # UNMEASURED platforms are marked below. Until a platform has its own data it runs Crosstrek
 # numbers, which is one reason this stays alpha-longitudinal.
@@ -90,7 +90,7 @@ _CROSSTREK_LONG: dict = {
   # Re-measured 2026-09-15 against what the stock camera commands at steady cruise. The five flat
   # 2034 entries were 515-624 rpm HIGH at 18-26 m/s (n >= 112 stock frames at every point from
   # 15 m/s up), which is plant gain the integrator then has to fight - the mid-speed abruptness.
-  # The dip at 20 relative to 16 is real CVT behaviour, not a typo: the ratio talls out as speed
+  # The dip at 20 relative to 16 is real CVT behavior, not a typo: the ratio talls out as speed
   # rises. Values BELOW 15 m/s are deliberately UNCHANGED - EyeSight's ACC was never active below
   # 5.86 m/s in 438 segments, so there is no stock support down there, and the proposed low-speed
   # raise would have pushed +0.29 to +0.40 m/s^2 of extra forward authority into exactly the

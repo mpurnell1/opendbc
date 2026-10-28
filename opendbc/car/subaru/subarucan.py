@@ -153,7 +153,7 @@ def create_es_lkas_state(packer, frame, es_lkas_state_msg, enabled, lat_active, 
     values["LKAS_ACTIVE"] = 1  # Show LKAS lane lines
     if long_enabled:
       # The cluster draws no line at all unless Enable is set, and stock holds it at 0 the whole
-      # time openpilot is steering, so the colour below never reaches the screen without this.
+      # time openpilot is steering, so the color below never reaches the screen without this.
       values["LKAS_Left_Line_Enable"] = 1
       values["LKAS_Right_Line_Enable"] = 1
 

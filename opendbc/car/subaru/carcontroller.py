@@ -224,7 +224,7 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
       cruise_brake = np.clip(apply_brake, CarControllerParams.BRAKE_MIN, CarControllerParams.BRAKE_MAX)
 
       # The camera's own ACC brakes behind a lead whenever ours does, and a brake command of its
-      # own the car does not honour faults it once it moves on (452 asked, 299 given, fault at the
+      # own the car does not honor faults it once it moves on (452 asked, 299 given, fault at the
       # stop: subaru-long-aeb-passthrough.md), so it is never given less than it asks for. The
       # panda cannot verify a copy, hence its cap. Its standstill hold is the exception: it lets go
       # only for the gas tap (camera_copies.py), and the tap waits for openpilot's own brake to be off.
