@@ -84,9 +84,9 @@ class TestSubaruHighAngleGuard(unittest.TestCase):
 
   def test_one_transition_per_excursion(self):
     ci, packer = self._interface("SUBARU_FORESTER")
-    profile = list(range(0, 130)) + list(range(130, -1, -1))
+    profile = list(range(130)) + list(range(130, -1, -1))
     flags = [self._step(ci, packer, a) for a in profile]
-    edges = sum(1 for a, b in zip(flags, flags[1:]) if a != b)
+    edges = sum(1 for a, b in zip(flags, flags[1:], strict=False) if a != b)
     assert edges == 2, edges
     assert flags[profile.index(HIGH_ANGLE_CUT_DEG + 1)]
     assert not flags[-1]
@@ -208,7 +208,8 @@ class TestSubaruBrakeLamps(unittest.TestCase):
     fingerprints = dict.fromkeys(range(7), {})
     CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
-    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20)], 0)
+    parser = CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20)], 0)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), parser
 
   def _drive(self, ci, packer, parser, v, a_ego, accel, steps):
     frames = [CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1}))]
@@ -266,7 +267,7 @@ class TestSubaruCameraOutage(unittest.TestCase):
 
 class TestSubaruCameraAccBrake(unittest.TestCase):
   """The camera's own ACC brakes behind a lead whenever ours does; a command of its own the car does
-  not honour faults it once it moves on, so it is never given less than it asks for."""
+  not honor faults it once it moves on, so it is never given less than it asks for."""
 
   def _interface(self):
     car = "SUBARU_FORESTER"
@@ -274,7 +275,8 @@ class TestSubaruCameraAccBrake(unittest.TestCase):
     fingerprints = dict.fromkeys(range(7), {})
     CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
-    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+    parser = CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), parser
 
   def _drive(self, ci, packer, parser, pressure, active, accel=0.0, steps=10, v_ego=25.0):
     frames = [CanData(*packer.make_can_msg("ES_Brake", 2, {"Brake_Pressure": pressure, "Cruise_Brake_Active": active})),
@@ -561,7 +563,8 @@ class TestSubaruThrottleShapes(unittest.TestCase):
     fingerprints = dict.fromkeys(range(7), {})
     CP = CarInterface.get_params(car, fingerprints, [], alpha_long=True, is_release=False, docs=False)
     CP_SP = CarInterface.get_params_sp(CP, car, fingerprints, [], alpha_long=True, is_release_sp=False, docs=False)
-    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+    parser = CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_Brake", 20), ("ES_Distance", 20)], 0)
+    return CarInterface(CP, CP_SP), CANPacker(DBC[CP.carFingerprint][Bus.pt]), parser
 
   def _drive(self, ci, packer, parser, v, accel, steps=80):
     frames = [CanData(*packer.make_can_msg("CruiseControl", 0, {"Cruise_Activated": 1}))]

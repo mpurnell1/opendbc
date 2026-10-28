@@ -448,7 +448,6 @@ class TestSubaruGen1LongitudinalCameraEchoSafety(TestSubaruGen1LongitudinalSafet
         self.assertEqual(controls_allowed and v_ms < 2., self._tx(self._cam_throttle_msg(5, 0)), (controls_allowed, v_ms))
 
 
-
 class TestSubaruGen1LongitudinalStockAebOffSafety(TestSubaruGen1LongitudinalCameraEchoSafety):
   """ALT_EXP_DISABLE_STOCK_AEB: the camera's ES burst stays openpilot's through its AEB claim, its warning and
   its pre-charge, as stock openpilot does."""
