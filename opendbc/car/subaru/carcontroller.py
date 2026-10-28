@@ -7,6 +7,7 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_a
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
 from opendbc.car.subaru.values import DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
+from opendbc.safety import ALTERNATIVE_EXPERIENCE
 
 from opendbc.sunnypilot.car.subaru.camera_copies import CameraCopiesController
 from opendbc.sunnypilot.car.subaru.stop_and_go import SnGCarController
@@ -116,7 +117,8 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
     # *** longitudinal ***
 
     # Mirror of the panda's stock AEB latch (safety/modes/subaru.h): while it is set the panda forwards
-    # the camera's ES_Brake and refuses ours and any throttle above inactive, so the two must agree.
+    # the camera's ES_Brake and refuses ours and any throttle above inactive, so the two must agree,
+    # DISABLE_STOCK_AEB included.
     cam_brake = 0
     cam_acc_braking = False
     if self.CP.openpilotLongitudinalControl:
@@ -126,7 +128,9 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
                 (cam_brake_active and not CS.out.cruiseState.enabled)
       cam_brake = CS.es_brake_msg["Brake_Pressure"]
       cam_acc_braking = cam_brake_active and not cam_aeb
-      if self.stock_aeb:
+      if self.CP.alternativeExperience & ALTERNATIVE_EXPERIENCE.DISABLE_STOCK_AEB:
+        self.stock_aeb = False
+      elif self.stock_aeb:
         self.stock_aeb = cam_aeb or cam_brake > self.brake_last
       else:
         self.stock_aeb = cam_aeb and cam_brake > 0 and cam_brake >= self.brake_last

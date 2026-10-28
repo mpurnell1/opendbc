@@ -201,8 +201,9 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
     subaru_brake_pedal_idx = (subaru_brake_pedal_idx + 1U) % SUBARU_PEDAL_HISTORY_LEN;
   }
 
-  // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none; bit 38 is Cruise_Brake_Active
-  if (msg_matches(msg, MSG_SUBARU_ES_Brake, SUBARU_CAM_BUS)) {
+  // AEB_Status is bits 32-35: 8 is actuation, 4 and 12 its related states, 0 none; bit 38 is Cruise_Brake_Active.
+  // Under ALT_EXP_DISABLE_STOCK_AEB the latch never opens and the camera's burst stays blocked whole, as honda's does.
+  if (msg_matches(msg, MSG_SUBARU_ES_Brake, SUBARU_CAM_BUS) && !(alternative_experience & ALT_EXP_DISABLE_STOCK_AEB)) {
     bool cam_precharge = GET_BIT(msg, 38U) && !cruise_engaged_prev;
     bool aeb_event = ((msg->data[4] & 0xFU) != 0U) || subaru_collision_warning || cam_precharge;
     int stock_brake = GET_BYTES_LE(msg, 2, 2);
