@@ -214,7 +214,7 @@ class TestSubaruLongitudinalSafetyBase(TestSubaruSafetyBase, common.Longitudinal
   def _cam_brake_msg(self, aeb_status, brake, active=0):
     # its own packer: the camera's counter sequence is independent of openpilot's ES_Brake
     if not hasattr(self, "cam_packer"):
-      self.cam_packer = CANPackerSafety("subaru_global_2017_generated")
+      self.cam_packer = common.CANPackerSafety("subaru_global_2017_generated")
     values = {"AEB_Status": aeb_status, "Brake_Pressure": brake, "Cruise_Brake_Active": active}
     return self.cam_packer.make_can_msg_safety("ES_Brake", SUBARU_CAM_BUS, values)
 
