@@ -555,3 +555,12 @@ class TestSubaruThrottleShapes(unittest.TestCase):
     assert self._drive(ci, packer, parser, v, -0.7)[0] == CarControllerParams.THROTTLE_MIN
     # below 8 m/s any deceleration at all closes it, as stock does
     assert self._drive(ci, packer, parser, 6.0, -0.2)[0] == CarControllerParams.THROTTLE_MIN
+
+  def test_the_planner_floor_gets_all_the_brake(self):
+    ci, packer, parser = self._interface()
+    v = 20.0
+    self._drive(ci, packer, parser, v, 0.0)
+    thr, brake = self._drive(ci, packer, parser, v, -3.0, steps=400)
+    assert thr == CarControllerParams.THROTTLE_MIN
+    assert 0 < brake < CarControllerParams.BRAKE_MAX
+    assert self._drive(ci, packer, parser, v, CarControllerParams.ACCEL_MIN, steps=400)[1] == CarControllerParams.BRAKE_MAX

@@ -20,6 +20,9 @@ MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
 # a backstop against a bad pose estimate; it also trims grades steeper than about 9 deg.
 GRADE_FF_GAIN = 1.0
 GRADE_FF_MAX = 1.5  # m/s^2
+# How far above ACCEL_MIN the brake blends toward BRAKE_MAX: narrow enough that the law commands more
+# than the blend until the last 0.1 m/s^2, so only a request at the floor changes.
+FULL_BRAKE_SPAN = 0.5  # m/s^2
 
 # Backstop against steps in the actuator command, same value toyota uses. It sits above the
 # planner's own jerk budget, so it shapes nothing in normal driving and only catches
@@ -198,6 +201,10 @@ class CarController(CarControllerBase, SnGCarController, CameraCopiesController)
       step = self.p.CRAWL_BRAKE_RATE * DT_CTRL
       self.crawl_floor = rate_limit(crawl_target, self.crawl_floor, -step, step)
       apply_brake = max(apply_brake, int(round(self.crawl_floor)))
+      # The planner's floor asks for all the brake there is, and the law leaves it 80 to 90 counts short
+      # of BRAKE_MAX once the closed throttle's share is taken off, more on a descent.
+      apply_brake = max(apply_brake, int(round(np.interp(accel, [CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MIN + FULL_BRAKE_SPAN],
+                                                         [CarControllerParams.BRAKE_MAX, 0.0]))))
 
       # The upper limit is speed dependent for the same reason the panda's is: a flat count is a
       # different acceleration at every speed. Clip here rather than let the panda refuse the
